@@ -1,22 +1,23 @@
-#include "system/system.h"
 #include "pass.h"
 #include "system/gui.h"
+#include "system/system.h"
 #include "util/event.h"
 
-int main() {
+int main()
+{
     auto system = Pupil::util::Singleton<Pupil::System>::instance();
     system->Init(true);
-    {
-        auto pass = std::make_unique<CudaPass>();
-        system->AddPass(pass.get());
+     {
+         auto pass = std::make_unique<CudaPass>();
+         system->AddPass(pass.get());
 
-        struct {
-            uint32_t w, h;
-        } size{ 512, 512 };
-        Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
+         //struct {
+         //    uint32_t w, h;
+         //} size{ 1000, 1000 };
+         //Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
 
-        system->Run();
-    }
+         system->Run();
+     }
 
     system->Destroy();
 

@@ -95,4 +95,36 @@ struct Mat4 {
 
     Mat4 GetTranspose() const noexcept { return DirectX::XMMatrixTranspose(dx_mat); }
 };
+
+struct Mat3 {
+    union {
+        struct {
+            Float3 r0;
+            Float3 r1;
+            Float3 r2;
+        };
+        float e[9];
+        float re[3][3];
+        DirectX::XMMATRIX dx_mat;
+    };
+
+    constexpr Mat3() noexcept : r0(0.f), r1(0.f), r2(0.f) {}
+    constexpr Mat3(float m00, float m01, float m02,
+                   float m10, float m11, float m12,
+                   float m20, float m21, float m22 ) noexcept
+        : r0(m00, m01, m02), r1(m10, m11, m12), r2(m20, m21, m22) {}
+
+    Mat3(float e_[9]) noexcept { std::copy(e_, e_ + 9, e); }
+    Mat3(DirectX::XMMATRIX m) noexcept { dx_mat = m; }
+    operator DirectX::XMMATRIX() const noexcept { return dx_mat; }
+
+    DirectX::XMMATRIX operator*(const Mat3 &t) const noexcept { return dx_mat * t.dx_mat; }
+
+    Mat3 GetInverse() const noexcept {
+        auto ret = DirectX::XMMatrixInverse(nullptr, dx_mat);
+        return ret;
+    }
+
+    Mat3 GetTranspose() const noexcept { return DirectX::XMMatrixTranspose(dx_mat); }
+};
 }// namespace Pupil::util

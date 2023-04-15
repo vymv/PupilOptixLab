@@ -99,10 +99,9 @@ extern "C" __global__ void __raygen__main() {
                     auto &emitter = optix_launch_params.emitters.areas[local_hit.emitter_index];
                     auto emission = emitter.GetRadiance(local_hit.geo.texcoord);
                     record.radiance += emission;
-                    //optix_launch_params.frame_buffer[pixel_index] = make_float4(1.0f);
                 }
             }
-            //return;
+
             ++depth;
             if (depth >= optix_launch_params.config.max_depth)
                 break;
@@ -134,22 +133,17 @@ extern "C" __global__ void __raygen__main() {
             // bsdf sampling
             {
                 float3 wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
-
-                // 确定弹射方向
                 auto bsdf_sample_record = record.hit.mat.Sample(record.random.Next2(), wo, local_hit.geo.texcoord);
                 if (optix::IsZero(bsdf_sample_record.f * abs(bsdf_sample_record.wi.z)) || optix::IsZero(bsdf_sample_record.pdf))
                     break;
 
-                // 能量损失
                 record.throughput *= bsdf_sample_record.f * abs(bsdf_sample_record.wi.z) / bsdf_sample_record.pdf;
 
-                // russia roulette
                 float rr = depth > 2 ? 0.95 : 1.0;
                 if (record.random.Next() > rr)
                     break;
                 record.throughput /= rr;
 
-                // 追踪弹射光线
                 ray_origin = record.hit.geo.position;
                 ray_direction = optix::ToWorld(bsdf_sample_record.wi, local_hit.geo.normal);
 
@@ -160,14 +154,12 @@ extern "C" __global__ void __raygen__main() {
                            0, 2, 0,
                            u0, u1);
 
-                // miss则done
                 if (record.done) {
                     float mis = optix::MISWeight(bsdf_sample_record.pdf, record.env_pdf);
                     record.env_radiance *= record.throughput * mis;
                     break;
                 }
 
-                // 没有miss则计算radiance
                 local_hit = record.hit;
                 if (record.hit.emitter_index >= 0) {
                     auto &emitter = optix_launch_params.emitters.areas[record.hit.emitter_index];
