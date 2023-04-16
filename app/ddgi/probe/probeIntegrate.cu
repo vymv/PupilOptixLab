@@ -36,7 +36,7 @@ __device__ float2 normalizedOctCoord(int2 fragCoord, int probeSideLength)
 }
 
 // probeRayGbuffer -> probeTexture
-__global__ void UpdateProbe(float4 *rayGbuffer, float4 *probeIrradiance, uint2 size, int raysPerProbe,
+__global__ void UpdateProbe(const float4 *rayGbuffer, float4 *probeIrradiance, uint2 size, int raysPerProbe,
                             int probeSideLength)
 {
 
@@ -69,8 +69,10 @@ __global__ void UpdateProbe(float4 *rayGbuffer, float4 *probeIrradiance, uint2 s
     probeIrradiance[pixel_index] = make_float4(0.5);
 }
 
-void UpdateProbeCPU(cudaStream_t stream, Pupil::cuda::RWArrayView<float4> &rayGbuffer,
-                    Pupil::cuda::RWArrayView<float4> &probeIrradiance, uint2 size, int raysPerProbe,
+// void UpdateProbeCPU(cudaStream_t stream, Pupil::cuda::ConstArrayView<float4> rayGbuffer,
+//                     Pupil::cuda::RWArrayView<float4> &probeIrradiance, uint2 size, int raysPerProbe,
+//                     int probeSideLength)
+void UpdateProbeCPU(cudaStream_t stream, Pupil::ddgi::probe::UpdateParams update_params, uint2 size, int raysPerProbe,
                     int probeSideLength)
 {
 
@@ -79,8 +81,8 @@ void UpdateProbeCPU(cudaStream_t stream, Pupil::cuda::RWArrayView<float4> &rayGb
     int grid_size_x = (size.x + block_size_x - 1) / block_size_x;
     int grid_size_y = (size.y + block_size_y - 1) / block_size_y;
     UpdateProbe<<<dim3(grid_size_x, grid_size_y), dim3(block_size_x, block_size_y), 0, stream>>>(
-        rayGbuffer.GetDataPtr(), probeIrradiance.GetDataPtr(), size, raysPerProbe, probeSideLength);
-
+        update_params.rayradiance.GetDataPtr(), update_params.probeirradiance.GetDataPtr(), size, raysPerProbe,
+        probeSideLength);
     // UpdateProbe<<<dim3(grid_size_x, grid_size_y), dim3(block_size_x, block_size_y), 0, stream>>>(
-    //     probeIrradiance.GetDataPtr(), size);
+    //     rayGbuffer.GetDataPtr(), probeIrradiance.GetDataPtr(), size, raysPerProbe, probeSideLength);
 }

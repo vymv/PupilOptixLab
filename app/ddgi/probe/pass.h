@@ -45,6 +45,7 @@ class ProbePass : public Pass
     void SetSBT(scene::Scene *) noexcept;
 
     OptixLaunchParams m_optix_launch_params;
+    UpdateParams m_update_params;
     std::unique_ptr<cuda::Stream> m_stream;
     std::unique_ptr<optix::Pass<SBTTypes, OptixLaunchParams>> m_optix_pass;
     // size_t m_output_pixel_num = 0;
@@ -57,6 +58,7 @@ class ProbePass : public Pass
 
     Buffer *m_rayradiance = nullptr;
     Buffer *m_rayhitposition = nullptr;
+    Buffer *m_raydirection = nullptr;
 
     CUdeviceptr m_randomoriention_cuda_memory = 0;
     CUdeviceptr m_probepos_cuda_memory = 0;

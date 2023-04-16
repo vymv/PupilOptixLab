@@ -105,9 +105,11 @@ void ProbePass::Run() noexcept
         } raygbuffersize{static_cast<uint32_t>(irradianceRaysPerProbe),
                          static_cast<uint32_t>(std::pow(probecountperside, 3))};
 
+        // m_optix_launch_params.raydirection.SetData(m_raydirection->cuda_res.ptr, raygbuffersize.w *
+        // raygbuffersize.h);
         m_optix_launch_params.rayradiance.SetData(m_rayradiance->cuda_res.ptr, raygbuffersize.w * raygbuffersize.h);
-        // m_optix_launch_params.rayhitposition.SetData(m_rayhitposition->cuda_res.ptr,
-        //                                              raygbuffersize.w * raygbuffersize.h);
+        m_optix_launch_params.rayhitposition.SetData(m_rayhitposition->cuda_res.ptr,
+                                                     raygbuffersize.w * raygbuffersize.h);
 
         m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
                           m_optix_launch_params.config.frame.height);
@@ -127,26 +129,34 @@ void ProbePass::Run() noexcept
             m_firstframe = false;
         }
 
-        // m_frame_cnt++;
-        // cuda::RWArrayView<float4> output;
-        // auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
-        // output.SetData(frame_buffer.cuda_ptr, 1000 * 1000);
-        // CudaSetColor(m_stream->GetStream(), output, make_uint2(1000, 1000), m_frame_cnt);
-        // m_stream->Synchronize();
-
         // 积分
         // 输入
+        // gbuffer
         auto buf_mngr = util::Singleton<BufferManager>::instance();
         auto raygbuffer = buf_mngr->GetBuffer("ddgi_rayradiance");
-        cuda::RWArrayView<float4> rayIrradianceGbuffer;
-        rayIrradianceGbuffer.SetData(raygbuffer->cuda_res.ptr, irradianceRaysPerProbe * std::pow(probecountperside, 3));
+        m_update_params.rayradiance.SetData(raygbuffer->cuda_res.ptr,
+                                            irradianceRaysPerProbe * std::pow(probecountperside, 3));
+        // hitposition
+        auto rayhitpositionbuffer = buf_mngr->GetBuffer("ddgi_rayhitposition");
+        m_update_params.rayhitposition.SetData(rayhitpositionbuffer->cuda_res.ptr,
+                                               irradianceRaysPerProbe * std::pow(probecountperside, 3));
+        // direction
+        auto raydirectionbuffer = buf_mngr->GetBuffer("ddgi_raydirection");
+        m_update_params.raydirection.SetData(raydirectionbuffer->cuda_res.ptr,
+                                             irradianceRaysPerProbe * std::pow(probecountperside, 3));
+        // origin
+        CUDA_FREE(m_probepos_cuda_memory);
+        m_probepos_cuda_memory = cuda::CudaMemcpyToDevice(m_probepos.data(), m_probepos.size() * sizeof(float3));
+        m_update_params.rayorgin.SetData(m_probepos_cuda_memory, m_probepos.size());
 
         // 输出
-        cuda::RWArrayView<float4> probeIrradiance;
         auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
-        probeIrradiance.SetData(frame_buffer.cuda_ptr, size.h * size.w);
-        UpdateProbeCPU(m_stream->GetStream(), rayIrradianceGbuffer, probeIrradiance, make_uint2(size.w, size.h),
-                       irradianceRaysPerProbe, probeSideLength);
+        m_update_params.probeirradiance.SetData(frame_buffer.cuda_ptr, size.h * size.w);
+        // UpdateProbeCPU(m_stream->GetStream(), m_update_params.rayradiance, m_update_params.probeirradiance,
+        //                make_uint2(size.w, size.h), irradianceRaysPerProbe, probeSideLength);
+
+        UpdateProbeCPU(m_stream->GetStream(), m_update_params, make_uint2(size.w, size.h), irradianceRaysPerProbe,
+                       probeSideLength);
 
         m_stream->Synchronize();
     }
@@ -234,6 +244,13 @@ void ProbePass::SetScene(World *world) noexcept
 
     m_rayhitposition = buf_mngr->AllocBuffer(rayhitposition_buf_desc);
 
+    BufferDesc raydirection_buf_desc = {
+        .type = EBufferType::Cuda,
+        .name = "ddgi_raydirection",
+        .size = static_cast<uint64_t>(irradianceRaysPerProbe * std::pow(probecountperside, 3) * sizeof(float4))};
+
+    m_raydirection = buf_mngr->AllocBuffer(raydirection_buf_desc);
+
     // struct
     // {
     //     uint32_t w, h;
@@ -267,6 +284,8 @@ void ProbePass::SetScene(World *world) noexcept
     m_optix_launch_params.probepos.SetData(m_probepos_cuda_memory, m_probepos.size());
 
     m_optix_launch_params.rayradiance.SetData(0, 0);
+    m_optix_launch_params.rayhitposition.SetData(0, 0);
+    m_optix_launch_params.raydirection.SetData(0, 0);
     m_optix_launch_params.handle = world->optix_scene->ias_handle;
     m_optix_launch_params.emitters = world->optix_scene->emitters->GetEmitterGroup();
 
