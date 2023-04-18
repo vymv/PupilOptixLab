@@ -14,8 +14,8 @@
 
 #include "cuda/stream.h"
 
+#include "stb/stb_image_write.h"
 #include "util/timer.h"
-
 #include <memory>
 #include <mutex>
 
@@ -59,14 +59,17 @@ class ProbePass : public Pass
     Buffer *m_rayradiance = nullptr;
     Buffer *m_rayhitposition = nullptr;
     Buffer *m_raydirection = nullptr;
+    Buffer *m_rayhitnormal = nullptr;
 
     CUdeviceptr m_randomoriention_cuda_memory = 0;
     CUdeviceptr m_probepos_cuda_memory = 0;
     std::vector<float3> m_probepos;
 
-    int probeSideLength = 64;
-    int irradianceRaysPerProbe = 64;
-    int probecountperside = 2;
+    int m_probesidelength = 64;
+    int m_irradiancerays_perprobe = 64;
+    int m_probecountperside = 2;
+    float m_hysteresis = 0.98f;
+    float m_maxdistance;
 
     unsigned int m_frame_cnt = 0;
 };

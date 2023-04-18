@@ -11,6 +11,7 @@ __global__ void Test(float4 *output_image, uint2 size, unsigned int frame_cnt) {
                                      cos(((float)pixel_x) / size.x + frame_cnt / 100.f),
                                      sin(((float)pixel_y) / size.y + frame_cnt / 100.f),
                                      0.7f);
+    //printf("%f", color);
     output_image[pixel_index] = make_float4(color, 1.f);
 }
 

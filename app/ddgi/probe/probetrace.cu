@@ -150,11 +150,13 @@ extern "C" __global__ void __raygen__main()
     result += record.radiance;
 
     optix_launch_params.rayradiance[pixel_index] = make_float4(result, 1.f);
-    optix_launch_params.rayhitposition[pixel_index] = make_float4(record.hit.geo.position, 1.f);
+    optix_launch_params.rayhitposition[pixel_index] = record.hit.geo.position;
+    optix_launch_params.rayhitnormal[pixel_index] = record.hit.geo.normal;
+    optix_launch_params.raydirection[pixel_index] = ray_direction;
     // optix_launch_params.raydirection[pixel_index] = make_float4(ray_direction, 1.0);
-    //   optix_launch_params.rayradiance[pixel_index] = make_float4(record.color, 1.f);
-    //   optix_launch_params.rayradiance[pixel_index] = make_float4(ray_origin, 1.f);
-    //   optix_launch_params.rayradiance[pixel_index] = make_float4(ray_direction, 1.f);
+    //     optix_launch_params.rayradiance[pixel_index] = make_float4(record.color, 1.f);
+    //     optix_launch_params.rayradiance[pixel_index] = make_float4(ray_origin, 1.f);
+    //     optix_launch_params.rayradiance[pixel_index] = make_float4(ray_direction, 1.f);
 }
 
 extern "C" __global__ void __miss__default()

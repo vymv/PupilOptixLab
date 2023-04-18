@@ -2,38 +2,47 @@
 
 #include "type.h"
 
+#include "optix/pass.h"
+#include "optix/scene/scene.h"
+#include "scene/scene.h"
 #include "system/pass.h"
 #include "system/resource.h"
 #include "system/world.h"
-#include "scene/scene.h"
-#include "optix/pass.h"
-#include "optix/scene/scene.h"
 
 #include "cuda/stream.h"
 
 #include "util/timer.h"
 
+#include "stb/stb_image_write.h"
+
 #include <memory>
 #include <mutex>
 
-namespace Pupil::ddgi::gbuffer {
-struct SBTTypes {
+namespace Pupil::ddgi::gbuffer
+{
+struct SBTTypes
+{
     using RayGenDataType = Pupil::ddgi::gbuffer::RayGenData;
     using MissDataType = Pupil::ddgi::gbuffer::MissData;
     using HitGroupDataType = Pupil::ddgi::gbuffer::HitGroupData;
 };
 
-class GBufferPass : public Pass {
-public:
+class GBufferPass : public Pass
+{
+  public:
     GBufferPass(std::string_view name = "DDGI GBuffer Pass") noexcept;
     virtual void Run() noexcept override;
     virtual void Inspector() noexcept override;
-    virtual void BeforeRunning() noexcept override {}
-    virtual void AfterRunning() noexcept override {}
+    virtual void BeforeRunning() noexcept override
+    {
+    }
+    virtual void AfterRunning() noexcept override
+    {
+    }
 
     void SetScene(World *) noexcept;
 
-private:
+  private:
     void BindingEventCallback() noexcept;
     void InitOptixPipeline() noexcept;
     void SetSBT(scene::Scene *) noexcept;
@@ -50,4 +59,4 @@ private:
 
     Timer m_timer;
 };
-}// namespace Pupil::ddgi::gbuffer
+} // namespace Pupil::ddgi::gbuffer

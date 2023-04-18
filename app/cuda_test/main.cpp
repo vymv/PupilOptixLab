@@ -11,10 +11,10 @@ int main()
          auto pass = std::make_unique<CudaPass>();
          system->AddPass(pass.get());
 
-         //struct {
-         //    uint32_t w, h;
-         //} size{ 1000, 1000 };
-         //Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
+         struct {
+             uint32_t w, h;
+         } size{ 1000, 1000 };
+         Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
 
          system->Run();
      }

@@ -102,26 +102,46 @@ void ProbePass::Run() noexcept
         struct
         {
             uint32_t w, h;
-        } raygbuffersize{static_cast<uint32_t>(irradianceRaysPerProbe),
-                         static_cast<uint32_t>(std::pow(probecountperside, 3))};
-
-        // m_optix_launch_params.raydirection.SetData(m_raydirection->cuda_res.ptr, raygbuffersize.w *
-        // raygbuffersize.h);
-        m_optix_launch_params.rayradiance.SetData(m_rayradiance->cuda_res.ptr, raygbuffersize.w * raygbuffersize.h);
+        } raygbuffersize{static_cast<uint32_t>(m_irradiancerays_perprobe),
+                         static_cast<uint32_t>(std::pow(m_probecountperside, 3))};
+        // if (m_firstframe)
+        // {
+        //     Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(raygbuffersize);
+        //     m_firstframe = false;
+        // }
+        m_optix_launch_params.rayhitnormal.SetData(m_rayhitnormal->cuda_res.ptr, raygbuffersize.w * raygbuffersize.h);
+        m_optix_launch_params.raydirection.SetData(m_raydirection->cuda_res.ptr, raygbuffersize.w * raygbuffersize.h);
         m_optix_launch_params.rayhitposition.SetData(m_rayhitposition->cuda_res.ptr,
                                                      raygbuffersize.w * raygbuffersize.h);
+        m_optix_launch_params.rayradiance.SetData(m_rayradiance->cuda_res.ptr, raygbuffersize.w * raygbuffersize.h);
+        // auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
+        // m_optix_launch_params.rayradiance.SetData(frame_buffer.cuda_ptr, raygbuffersize.w * raygbuffersize.h);
 
         m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
                           m_optix_launch_params.config.frame.height);
         m_optix_pass->Synchronize();
 
         ++m_optix_launch_params.random_seed;
+        // {
+        //     std::string temp = "D:/Code/PupilOptixLab/probehitradiance" + std::to_string(m_frame_cnt) + ".hdr";
+        //     std::filesystem::path path1{temp};
 
+        //     auto image1 = new float[raygbuffersize.w * raygbuffersize.h * 4];
+        //     memset(image1, 0, raygbuffersize.w * raygbuffersize.h * 4);
+        //     cuda::CudaMemcpyToHost(image1, m_rayradiance->cuda_res.ptr,
+        //                            raygbuffersize.w * raygbuffersize.h * 4 * sizeof(float));
+
+        //     stbi_flip_vertically_on_write(true);
+        //     stbi_write_hdr(path1.string().c_str(), raygbuffersize.w, raygbuffersize.h, 4, image1);
+        //     delete[] image1;
+
+        //     Pupil::Log::Info("image was saved successfully in [{}].\n", path1.string());
+        // }
         struct
         {
             uint32_t w, h;
-        } size{static_cast<uint32_t>(probecountperside * probecountperside * (probeSideLength + 2) + 2),
-               static_cast<uint32_t>(probecountperside * (probeSideLength + 2) + 2)};
+        } size{static_cast<uint32_t>(m_probecountperside * m_probecountperside * (m_probesidelength + 2) + 2),
+               static_cast<uint32_t>(m_probecountperside * (m_probesidelength + 2) + 2)};
 
         if (m_firstframe)
         {
@@ -135,15 +155,20 @@ void ProbePass::Run() noexcept
         auto buf_mngr = util::Singleton<BufferManager>::instance();
         auto raygbuffer = buf_mngr->GetBuffer("ddgi_rayradiance");
         m_update_params.rayradiance.SetData(raygbuffer->cuda_res.ptr,
-                                            irradianceRaysPerProbe * std::pow(probecountperside, 3));
+                                            m_irradiancerays_perprobe * std::pow(m_probecountperside, 3));
         // hitposition
         auto rayhitpositionbuffer = buf_mngr->GetBuffer("ddgi_rayhitposition");
         m_update_params.rayhitposition.SetData(rayhitpositionbuffer->cuda_res.ptr,
-                                               irradianceRaysPerProbe * std::pow(probecountperside, 3));
+                                               m_irradiancerays_perprobe * std::pow(m_probecountperside, 3));
+        // hitnormal
+        auto rayhitnormalbuffer = buf_mngr->GetBuffer("ddgi_rayhitnormal");
+        m_update_params.rayhitnormal.SetData(rayhitnormalbuffer->cuda_res.ptr,
+                                             m_irradiancerays_perprobe * std::pow(m_probecountperside, 3));
         // direction
         auto raydirectionbuffer = buf_mngr->GetBuffer("ddgi_raydirection");
         m_update_params.raydirection.SetData(raydirectionbuffer->cuda_res.ptr,
-                                             irradianceRaysPerProbe * std::pow(probecountperside, 3));
+                                             m_irradiancerays_perprobe * std::pow(m_probecountperside, 3));
+
         // origin
         CUDA_FREE(m_probepos_cuda_memory);
         m_probepos_cuda_memory = cuda::CudaMemcpyToDevice(m_probepos.data(), m_probepos.size() * sizeof(float3));
@@ -152,13 +177,26 @@ void ProbePass::Run() noexcept
         // 输出
         auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
         m_update_params.probeirradiance.SetData(frame_buffer.cuda_ptr, size.h * size.w);
-        // UpdateProbeCPU(m_stream->GetStream(), m_update_params.rayradiance, m_update_params.probeirradiance,
-        //                make_uint2(size.w, size.h), irradianceRaysPerProbe, probeSideLength);
 
-        UpdateProbeCPU(m_stream->GetStream(), m_update_params, make_uint2(size.w, size.h), irradianceRaysPerProbe,
-                       probeSideLength);
+        UpdateProbeCPU(m_stream->GetStream(), m_update_params, make_uint2(size.w, size.h), m_irradiancerays_perprobe,
+                       m_probesidelength, m_maxdistance, m_firstframe ? 0.0f : m_hysteresis);
 
         m_stream->Synchronize();
+        // {
+        //     std::string tmp = "D:/Code/PupilOptixLab/probeirradiance" + std::to_string(m_frame_cnt) + ".hdr";
+        //     std::filesystem::path path{tmp};
+
+        //     auto image = new float[size.w * size.h * 4];
+        //     memset(image, 0, size.w * size.h * 4);
+        //     cuda::CudaMemcpyToHost(image, frame_buffer.cuda_ptr, size.w * size.h * 4 * sizeof(float));
+
+        //     stbi_flip_vertically_on_write(true);
+        //     stbi_write_hdr(path.string().c_str(), size.w, size.h, 4, image);
+        //     delete[] image;
+
+        //     Pupil::Log::Info("image was saved successfully in [{}].\n", path.string());
+        //     ++m_frame_cnt;
+        // }
     }
     m_timer.Stop();
     m_time_cnt = m_timer.ElapsedMilliseconds();
@@ -166,20 +204,6 @@ void ProbePass::Run() noexcept
 
 void ProbePass::AfterRunning() noexcept
 {
-
-    // // 积分
-    // // int2 size = make_int2(probecountperside * probecountperside * (probeSideLength + 2) + 2,
-    // //                       probecountperside * (probeSideLength + 2) + 2);
-
-    // // cuda::RWArrayView<float4> rayIrradianceGbuffer;
-    // // rayIrradianceGbuffer.SetData(raygbuffer->cuda_res.ptr, irradianceRaysPerProbe * std::pow(probecountperside,
-    // 3)); cuda::RWArrayView<float4> rayIrradianceGbuffer;
-
-    // auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
-    // probeIrradiance.SetData(frame_buffer.cuda_ptr, 256 * 8);
-
-    // UpdateProbeCPU(m_stream->GetStream(), rayIrradianceGbuffer, probeIrradiance, make_uint2(256, 8),
-    //                irradianceRaysPerProbe, probeSideLength);
 }
 
 void ProbePass::InitOptixPipeline() noexcept
@@ -216,46 +240,39 @@ void ProbePass::SetScene(World *world) noexcept
 
     // m_world_camera = world->optix_scene->camera.get();
 
-    m_optix_launch_params.config.frame.width = irradianceRaysPerProbe;
-    m_optix_launch_params.config.frame.height = std::pow(probecountperside, 3);
+    m_optix_launch_params.config.frame.width = m_irradiancerays_perprobe;
+    m_optix_launch_params.config.frame.height = std::pow(m_probecountperside, 3);
 
     m_optix_launch_params.random_seed = 0;
 
-    // // 创建irradiance texture
-    // BufferDesc probeirradiance_buf_desc = {
-    //     .type = EBufferType::Cuda,
-    //     .name = "probe_irradiance",
-    //     .size = m_output_pixel_num * sizeof(float4)
-    // };
-    // auto buf_mngr = util::Singleton<BufferManager>::instance();
-    // m_probeirradiance = buf_mngr->AllocBuffer(probeirradiance_buf_desc);
     auto buf_mngr = util::Singleton<BufferManager>::instance();
     BufferDesc rayradiance_buf_desc = {
         .type = EBufferType::Cuda,
         .name = "ddgi_rayradiance",
-        .size = static_cast<uint64_t>(irradianceRaysPerProbe * std::pow(probecountperside, 3) * sizeof(float4))};
+        .size = static_cast<uint64_t>(m_irradiancerays_perprobe * std::pow(m_probecountperside, 3) * sizeof(float4))};
 
     m_rayradiance = buf_mngr->AllocBuffer(rayradiance_buf_desc);
 
     BufferDesc rayhitposition_buf_desc = {
         .type = EBufferType::Cuda,
         .name = "ddgi_rayhitposition",
-        .size = static_cast<uint64_t>(irradianceRaysPerProbe * std::pow(probecountperside, 3) * sizeof(float4))};
+        .size = static_cast<uint64_t>(m_irradiancerays_perprobe * std::pow(m_probecountperside, 3) * sizeof(float3))};
 
     m_rayhitposition = buf_mngr->AllocBuffer(rayhitposition_buf_desc);
 
     BufferDesc raydirection_buf_desc = {
         .type = EBufferType::Cuda,
         .name = "ddgi_raydirection",
-        .size = static_cast<uint64_t>(irradianceRaysPerProbe * std::pow(probecountperside, 3) * sizeof(float4))};
+        .size = static_cast<uint64_t>(m_irradiancerays_perprobe * std::pow(m_probecountperside, 3) * sizeof(float3))};
 
     m_raydirection = buf_mngr->AllocBuffer(raydirection_buf_desc);
 
-    // struct
-    // {
-    //     uint32_t w, h;
-    // } size{static_cast<uint32_t>(irradianceRaysPerProbe), static_cast<uint32_t>(std::pow(probecountperside, 3))};
-    // m_optix_launch_params.rayradiance.SetData(m_rayradiance->cuda_res.ptr, size.w * size.h);
+    BufferDesc rayhitnormal_buf_desc = {
+        .type = EBufferType::Cuda,
+        .name = "ddgi_rayhitnormal",
+        .size = static_cast<uint64_t>(m_irradiancerays_perprobe * std::pow(m_probecountperside, 3) * sizeof(float3))};
+
+    m_rayhitnormal = buf_mngr->AllocBuffer(rayhitnormal_buf_desc);
 
     // 确定probe位置
     float3 min = make_float3(world->scene->aabb.min.x, world->scene->aabb.min.y, world->scene->aabb.min.z);
@@ -267,18 +284,22 @@ void ProbePass::SetScene(World *world) noexcept
     max = center + (max - center) * shrink;
 
     float3 probestep =
-        make_float3((max.x - min.x) / float(probecountperside - 1), (max.y - min.y) / float(probecountperside - 1),
-                    (max.z - min.z) / float(probecountperside - 1));
-    for (int i = 0; i < probecountperside; i++)
+        make_float3((max.x - min.x) / float(m_probecountperside - 1), (max.y - min.y) / float(m_probecountperside - 1),
+                    (max.z - min.z) / float(m_probecountperside - 1));
+    for (int i = 0; i < m_probecountperside; i++)
     {
-        for (int j = 0; j < probecountperside; j++)
+        for (int j = 0; j < m_probecountperside; j++)
         {
-            for (int k = 0; k < probecountperside; k++)
+            for (int k = 0; k < m_probecountperside; k++)
             {
                 m_probepos.push_back(min + make_float3(k * probestep.x, j * probestep.y, i * probestep.z));
             }
         }
     }
+
+    float3 boundingboxlength = max - min;
+    m_maxdistance = length(boundingboxlength / make_float3(m_probecountperside)) * 1.5f;
+
     CUDA_FREE(m_probepos_cuda_memory);
     m_probepos_cuda_memory = cuda::CudaMemcpyToDevice(m_probepos.data(), m_probepos.size() * sizeof(float3));
     m_optix_launch_params.probepos.SetData(m_probepos_cuda_memory, m_probepos.size());
@@ -286,6 +307,7 @@ void ProbePass::SetScene(World *world) noexcept
     m_optix_launch_params.rayradiance.SetData(0, 0);
     m_optix_launch_params.rayhitposition.SetData(0, 0);
     m_optix_launch_params.raydirection.SetData(0, 0);
+    m_optix_launch_params.rayhitnormal.SetData(0, 0);
     m_optix_launch_params.handle = world->optix_scene->ias_handle;
     m_optix_launch_params.emitters = world->optix_scene->emitters->GetEmitterGroup();
 

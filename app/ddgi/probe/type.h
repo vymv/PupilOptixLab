@@ -26,8 +26,9 @@ struct OptixLaunchParams
     optix::EmitterGroup emitters;
 
     cuda::RWArrayView<float4> rayradiance;
-    cuda::RWArrayView<float4> raydirection;
-    cuda::RWArrayView<float4> rayhitposition;
+    cuda::RWArrayView<float3> raydirection;
+    cuda::RWArrayView<float3> rayhitposition;
+    cuda::RWArrayView<float3> rayhitnormal;
     //  cuda::RWArrayView<float4> normal;
 
     OptixTraversableHandle handle;
