@@ -1,4 +1,5 @@
 #include "pass.h"
+// #include "../global.h"
 #include "imgui.h"
 
 #include "cuda/context.h"
@@ -137,17 +138,19 @@ void ProbePass::Run() noexcept
 
         //     Pupil::Log::Info("image was saved successfully in [{}].\n", path1.string());
         // }
+
         struct
         {
             uint32_t w, h;
-        } size{static_cast<uint32_t>(m_probecountperside * m_probecountperside * (m_probesidelength + 2) + 2),
-               static_cast<uint32_t>(m_probecountperside * (m_probesidelength + 2) + 2)};
+        } probeirradiancesize{
+            static_cast<uint32_t>(m_probecountperside * m_probecountperside * (m_probesidelength + 2) + 2),
+            static_cast<uint32_t>(m_probecountperside * (m_probesidelength + 2) + 2)};
 
-        if (m_firstframe)
-        {
-            Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
-            m_firstframe = false;
-        }
+        // if (m_firstframe)
+        // {
+        //     Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
+        //     m_firstframe = false;
+        // }
 
         // 积分
         // 输入
@@ -175,13 +178,17 @@ void ProbePass::Run() noexcept
         m_update_params.rayorgin.SetData(m_probepos_cuda_memory, m_probepos.size());
 
         // 输出
-        auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
-        m_update_params.probeirradiance.SetData(frame_buffer.cuda_ptr, size.h * size.w);
+        // auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
+        // m_update_params.probeirradiance.SetData(frame_buffer.cuda_ptr, size.h * size.w);
+        auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
+        m_update_params.probeirradiance.SetData(probeirradiancebuffer->cuda_res.ptr,
+                                                probeirradiancesize.h * probeirradiancesize.w);
 
-        UpdateProbeCPU(m_stream->GetStream(), m_update_params, make_uint2(size.w, size.h), m_irradiancerays_perprobe,
-                       m_probesidelength, m_maxdistance, m_firstframe ? 0.0f : m_hysteresis);
+        UpdateProbeCPU(m_stream->GetStream(), m_update_params, make_uint2(probeirradiancesize.w, probeirradiancesize.h),
+                       m_irradiancerays_perprobe, m_probesidelength, m_maxdistance, m_firstframe ? 0.0f : m_hysteresis);
 
         m_stream->Synchronize();
+
         // {
         //     std::string tmp = "D:/Code/PupilOptixLab/probeirradiance" + std::to_string(m_frame_cnt) + ".hdr";
         //     std::filesystem::path path{tmp};
@@ -196,6 +203,36 @@ void ProbePass::Run() noexcept
 
         //     Pupil::Log::Info("image was saved successfully in [{}].\n", path.string());
         //     ++m_frame_cnt;
+        // }
+
+        // auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
+        // if (m_show_type == 0)
+        // {
+        //     // pt
+        // }
+        // else if (m_show_type == 1)
+        // { // probeirradiance
+
+        //     Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(probeirradiancesize);
+
+        //     auto buf_mngr = util::Singleton<BufferManager>::instance();
+        //     auto probeirradiance = buf_mngr->GetBuffer("ddgi_probeirradiance");
+        //     cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)probeirradiance->cuda_res.ptr,
+        //                     probeirradiancesize.w * probeirradiancesize.h * sizeof(float4),
+        //                     cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream());
+        //     cudaStreamSynchronize(m_stream->GetStream());
+        // }
+        // else if (m_show_type == 2)
+        // { // rayGbuffer
+
+        //     Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(raygbuffersize);
+
+        //     auto buf_mngr = util::Singleton<BufferManager>::instance();
+        //     auto rayGbuffer = buf_mngr->GetBuffer("ddgi_rayradiance");
+        //     cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)rayGbuffer->cuda_res.ptr,
+        //                     raygbuffersize.w * raygbuffersize.h * sizeof(float4),
+        //                     cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream());
+        //     cudaStreamSynchronize(m_stream->GetStream());
         // }
     }
     m_timer.Stop();
@@ -274,6 +311,14 @@ void ProbePass::SetScene(World *world) noexcept
 
     m_rayhitnormal = buf_mngr->AllocBuffer(rayhitnormal_buf_desc);
 
+    BufferDesc probeirradiance_buf_desc = {
+        .type = EBufferType::Cuda,
+        .name = "ddgi_probeirradiance",
+        .size = static_cast<uint64_t>((m_probecountperside * m_probecountperside * (m_probesidelength + 2) + 2) *
+                                      (m_probecountperside * (m_probesidelength + 2) + 2) * sizeof(float4))};
+
+    m_probeirradiance = buf_mngr->AllocBuffer(probeirradiance_buf_desc);
+
     // 确定probe位置
     float3 min = make_float3(world->scene->aabb.min.x, world->scene->aabb.min.y, world->scene->aabb.min.z);
     float3 max = make_float3(world->scene->aabb.max.x, world->scene->aabb.max.y, world->scene->aabb.max.z);
@@ -308,6 +353,7 @@ void ProbePass::SetScene(World *world) noexcept
     m_optix_launch_params.rayhitposition.SetData(0, 0);
     m_optix_launch_params.raydirection.SetData(0, 0);
     m_optix_launch_params.rayhitnormal.SetData(0, 0);
+    m_update_params.probeirradiance.SetData(0, 0);
     m_optix_launch_params.handle = world->optix_scene->ias_handle;
     m_optix_launch_params.emitters = world->optix_scene->emitters->GetEmitterGroup();
 
@@ -362,6 +408,10 @@ void ProbePass::BindingEventCallback() noexcept
 
 void ProbePass::Inspector() noexcept
 {
+    // constexpr auto show_type = std::array{"render result", "albedo", "normal"};
+    // constexpr auto show_type = std::array{"render result", "probeirradiance", "rayGbuffer"};
+    // ImGui::Combo("result", &m_show_type, show_type.data(), (int)show_type.size());
+
     ImGui::Text("Rendering average %.3lf ms/frame (%.1lf FPS)", m_time_cnt, 1000.0f / m_time_cnt);
 }
 } // namespace Pupil::ddgi::probe

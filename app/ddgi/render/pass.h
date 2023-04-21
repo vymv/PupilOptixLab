@@ -16,16 +16,16 @@
 #include <memory>
 #include <mutex>
 
-namespace Pupil::ddgi::pt
+namespace Pupil::ddgi::render
 {
 // Shading binding table，用于绑定管线在不同阶段可以访问的数据
 // 封装的版本要求必须包含__raygen__xxx、__miss__xxx、__closesthit__xxx三个阶段对应的数据类型
 // 这里使用了concept，只要将等号右边的类型改成自定义的类型即可
 struct SBTTypes
 {
-    using RayGenDataType = Pupil::ddgi::pt::RayGenData;
-    using MissDataType = Pupil::ddgi::pt::MissData;
-    using HitGroupDataType = Pupil::ddgi::pt::HitGroupData;
+    using RayGenDataType = Pupil::ddgi::render::RayGenData;
+    using MissDataType = Pupil::ddgi::render::MissData;
+    using HitGroupDataType = Pupil::ddgi::render::HitGroupData;
 };
 
 // 自定义Pass需要重载四个方法：
@@ -35,10 +35,10 @@ struct SBTTypes
 //   4. Inspector() 用于自定义UI上的显示与操作
 // 默认的Pass是会每帧都执行，如果需要预处理Pass，则添加Pre Tag：
 // Pass(std::string_view name, EPassTag tag = EPassTag::Pre)
-class PTPass : public Pass
+class RenderPass : public Pass
 {
   public:
-    PTPass(std::string_view name = "DDGI PT Pass") noexcept;
+    RenderPass(std::string_view name = "DDGI Render Pass") noexcept;
     virtual void Run() noexcept override;
     virtual void Inspector() noexcept override;
 
@@ -66,4 +66,4 @@ class PTPass : public Pass
 
     Timer m_timer;
 };
-} // namespace Pupil::ddgi::pt
+} // namespace Pupil::ddgi::render

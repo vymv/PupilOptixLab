@@ -16,17 +16,21 @@ set(target_name ddgi)
 # )
 
 cuda_compile_and_embed(ddgi_probe_pass_embedded_ptx_code probe/probetrace.cu)
+cuda_compile_and_embed(ddgi_render_pass_embedded_ptx_code render/render.cu)
 
 add_executable(${target_name}
     ${ddgi_probe_pass_embedded_ptx_code}
+    ${ddgi_render_pass_embedded_ptx_code}
     main.cpp
     probe/pass.h
     probe/pass.cpp
     probe/type.h
     probe/probeIntegrate.cu
     probe/probeIntegrate.h
-#     probe/test.h
-#     probe/test.cu
+    render/pass.h
+    render/pass.cpp
+    render/type.h
+    # global.h
 )
 
 target_link_libraries(${target_name} PUBLIC ${pupil_framework_name})

@@ -1,5 +1,5 @@
 #include "pass.h"
-
+// #include "../global.h"
 #include "cuda/context.h"
 #include "imgui.h"
 #include "optix/context.h"
@@ -10,7 +10,7 @@
 
 // 构建期通过CMake将.cu代码编译并嵌入到.c文件中，
 // 代码指令由char类型保存，只需要声明extern即可获取
-extern "C" char ddgi_pt_pass_embedded_ptx_code[];
+extern "C" char ddgi_render_pass_embedded_ptx_code[];
 
 namespace Pupil
 {
@@ -27,9 +27,9 @@ double m_time_cnt = 1.;
 int m_show_type = 0;
 } // namespace
 
-namespace Pupil::ddgi::pt
+namespace Pupil::ddgi::render
 {
-PTPass::PTPass(std::string_view name) noexcept : Pass(name)
+RenderPass::RenderPass(std::string_view name) noexcept : Pass(name)
 {
     auto optix_ctx = util::Singleton<optix::Context>::instance();
     auto cuda_ctx = util::Singleton<cuda::Context>::instance();
@@ -40,7 +40,7 @@ PTPass::PTPass(std::string_view name) noexcept : Pass(name)
     BindingEventCallback();
 }
 
-void PTPass::Run() noexcept
+void RenderPass::Run() noexcept
 {
     m_timer.Start();
     {
@@ -62,7 +62,15 @@ void PTPass::Run() noexcept
 
         if (m_show_type == 0)
         { // pt
-            // frame_buffer写入的内容将会被展示到gui上
+          // frame_buffer写入的内容将会被展示到gui上
+          // resize
+            // struct
+            // {
+            //     uint32_t w, h;
+            // } size{static_cast<uint32_t>(m_optix_launch_params.config.frame.width),
+            //        static_cast<uint32_t>(m_optix_launch_params.config.frame.height)};
+            // Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
+
             m_optix_launch_params.frame_buffer.SetData(frame_buffer.cuda_ptr, m_output_pixel_num);
             m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
                               m_optix_launch_params.config.frame.height);
@@ -70,35 +78,35 @@ void PTPass::Run() noexcept
 
             ++m_optix_launch_params.random_seed;
         }
-        else if (m_show_type == 1)
-        { // albedo
-            auto buf_mngr = util::Singleton<BufferManager>::instance();
-            auto albedo = buf_mngr->GetBuffer("ddgi_albedo");
-            cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)albedo->cuda_res.ptr,
-                            m_output_pixel_num * sizeof(float4), cudaMemcpyKind::cudaMemcpyDeviceToDevice,
-                            m_stream->GetStream());
-            cudaStreamSynchronize(m_stream->GetStream());
-        }
-        else if (m_show_type == 2)
-        { // normal
-            auto buf_mngr = util::Singleton<BufferManager>::instance();
-            auto normal = buf_mngr->GetBuffer("ddgi_normal");
-            cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)normal->cuda_res.ptr,
-                            m_output_pixel_num * sizeof(float4), cudaMemcpyKind::cudaMemcpyDeviceToDevice,
-                            m_stream->GetStream());
-            cudaStreamSynchronize(m_stream->GetStream());
-        }
+        // else if (m_show_type == 1)
+        // { // probeirradiance
+        //     auto buf_mngr = util::Singleton<BufferManager>::instance();
+        //     auto albedo = buf_mngr->GetBuffer("ddgi_probeirradiance");
+        //     cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)albedo->cuda_res.ptr,
+        //                     m_output_pixel_num * sizeof(float4), cudaMemcpyKind::cudaMemcpyDeviceToDevice,
+        //                     m_stream->GetStream());
+        //     cudaStreamSynchronize(m_stream->GetStream());
+        // }
+        // else if (m_show_type == 2)
+        // { // rayGbuffer
+        //     auto buf_mngr = util::Singleton<BufferManager>::instance();
+        //     auto normal = buf_mngr->GetBuffer("ddgi_rayradiance");
+        //     cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)normal->cuda_res.ptr,
+        //                     m_output_pixel_num * sizeof(float4), cudaMemcpyKind::cudaMemcpyDeviceToDevice,
+        //                     m_stream->GetStream());
+        //     cudaStreamSynchronize(m_stream->GetStream());
+        // }
     }
     m_timer.Stop();
     m_time_cnt = m_timer.ElapsedMilliseconds();
 }
 
-void PTPass::InitOptixPipeline() noexcept
+void RenderPass::InitOptixPipeline() noexcept
 {
     auto module_mngr = util::Singleton<optix::ModuleManager>::instance();
 
     auto sphere_module = module_mngr->GetModule(OPTIX_PRIMITIVE_TYPE_SPHERE);
-    auto pt_module = module_mngr->GetModule(ddgi_pt_pass_embedded_ptx_code);
+    auto render_module = module_mngr->GetModule(ddgi_render_pass_embedded_ptx_code);
 
     // 创建optix pipeline，需要填写.cu中对应的函数入口，
     // 产生光线(每一个像素都会执行，相当于一个线程)：命名前缀必须是__raygen__
@@ -111,7 +119,7 @@ void PTPass::InitOptixPipeline() noexcept
     optix::PipelineDesc pipeline_desc;
     {
         // for mesh(triangle) geo
-        optix::ProgramDesc desc{.module_ptr = pt_module,
+        optix::ProgramDesc desc{.module_ptr = render_module,
                                 .ray_gen_entry = "__raygen__main",
                                 .hit_miss = "__miss__default",
                                 .shadow_miss = "__miss__shadow",
@@ -123,7 +131,7 @@ void PTPass::InitOptixPipeline() noexcept
     // 球的求交使用built-in的球求交模块(这里使用module_mngr->GetModule(OPTIX_PRIMITIVE_TYPE_SPHERE)生成)
     {
         // for sphere geo
-        optix::ProgramDesc desc{.module_ptr = pt_module,
+        optix::ProgramDesc desc{.module_ptr = render_module,
                                 .hit_group = {.ch_entry = "__closesthit__default", .intersect_module = sphere_module},
                                 .shadow_grop = {.ch_entry = "__closesthit__shadow", .intersect_module = sphere_module}};
         pipeline_desc.programs.push_back(desc);
@@ -131,7 +139,7 @@ void PTPass::InitOptixPipeline() noexcept
     m_optix_pass->InitPipeline(pipeline_desc);
 }
 
-void PTPass::SetScene(World *world) noexcept
+void RenderPass::SetScene(World *world) noexcept
 {
     // 对于场景初始化参数
     m_world_camera = world->camera.get();
@@ -156,7 +164,7 @@ void PTPass::SetScene(World *world) noexcept
     m_dirty = true;
 }
 
-void PTPass::SetSBT(scene::Scene *scene) noexcept
+void RenderPass::SetSBT(scene::Scene *scene) noexcept
 {
     // 将场景数据绑定到sbt中
     optix::SBTDesc<SBTTypes> desc{};
@@ -195,7 +203,7 @@ void PTPass::SetSBT(scene::Scene *scene) noexcept
     m_optix_pass->InitSBT(desc);
 }
 
-void PTPass::BindingEventCallback() noexcept
+void RenderPass::BindingEventCallback() noexcept
 {
     // 相机参数改变后，需要在渲染前将改变后的参数传入optix的pipeline中，
     // 由于是多线程异步实现的，需要m_dirty原子操作标记一下
@@ -205,9 +213,10 @@ void PTPass::BindingEventCallback() noexcept
     EventBinder<ESystemEvent::SceneLoad>([this](void *p) { SetScene((World *)p); });
 }
 
-void PTPass::Inspector() noexcept
+void RenderPass::Inspector() noexcept
 {
-    constexpr auto show_type = std::array{"pt result", "albedo", "normal"};
+    // constexpr auto show_type = std::array{"render result", "albedo", "normal"};
+    constexpr auto show_type = std::array{"render result", "probeirradiance", "rayGbuffer"};
     ImGui::Combo("result", &m_show_type, show_type.data(), (int)show_type.size());
 
     ImGui::InputInt("spp", &m_spp);
@@ -225,4 +234,4 @@ void PTPass::Inspector() noexcept
     }
     ImGui::Text("Rendering average %.3lf ms/frame (%.1lf FPS)", m_time_cnt, 1000.0f / m_time_cnt);
 }
-} // namespace Pupil::ddgi::pt
+} // namespace Pupil::ddgi::render

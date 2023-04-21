@@ -11,7 +11,7 @@ using namespace Pupil;
 
 extern "C"
 {
-    __constant__ ddgi::pt::OptixLaunchParams optix_launch_params;
+    __constant__ ddgi::render::OptixLaunchParams optix_launch_params;
 }
 
 struct HitInfo
@@ -86,8 +86,6 @@ extern "C" __global__ void __raygen__main()
         // int depth = 0;
         auto local_hit = record.hit;
 
-        // while (!record.done)
-        //{
         if (record.hit.emitter_index >= 0)
         {
             auto &emitter = optix_launch_params.emitters.areas[local_hit.emitter_index];
@@ -121,7 +119,9 @@ extern "C" __global__ void __raygen__main()
                 }
             }
         }
-        //}
+
+        // indirect light
+
         record.radiance += record.env_radiance;
 
         result += record.radiance;
@@ -129,6 +129,7 @@ extern "C" __global__ void __raygen__main()
 
     result /= optix_launch_params.spp;
     optix_launch_params.frame_buffer[pixel_index] = make_float4(result, 1.f);
+    // optix_launch_params.frame_buffer[pixel_index] = make_float4(0.5f);
 }
 
 extern "C" __global__ void __miss__default()
@@ -151,7 +152,7 @@ extern "C" __global__ void __miss__shadow()
 }
 extern "C" __global__ void __closesthit__default()
 {
-    const ddgi::pt::HitGroupData *sbt_data = (ddgi::pt::HitGroupData *)optixGetSbtDataPointer();
+    const ddgi::render::HitGroupData *sbt_data = (ddgi::render::HitGroupData *)optixGetSbtDataPointer();
     auto record = optix::GetPRD<PathPayloadRecord>();
 
     const auto ray_dir = optixGetWorldRayDirection();

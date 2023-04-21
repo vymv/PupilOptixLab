@@ -105,7 +105,7 @@ __global__ void UpdateProbe(float4 *probeirradiance, const float4 *raygbuffer, c
         result = make_float4(newIrradiance * srcfactor + oldIrradiance * (1.0f - srcfactor), 1.0f);
     }
     probeirradiance[pixel_index] = result;
-    // probeirradiance[pixel_index] = make_float4(probeId);
+    // probeirradiance[pixel_index] = make_float4(0.5f);
 }
 
 // void UpdateProbeCPU(cudaStream_t stream, Pupil::cuda::ConstArrayView<float4> rayGbuffer,
