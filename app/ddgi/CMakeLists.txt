@@ -30,7 +30,10 @@ add_executable(${target_name}
     render/pass.h
     render/pass.cpp
     render/type.h
-    # global.h
+    indirect/probemath.h
+    indirect/global.h
+    indirect/global.cpp
+    indirect/indirect.h
 )
 
 target_link_libraries(${target_name} PUBLIC ${pupil_framework_name})

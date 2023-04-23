@@ -1,5 +1,5 @@
 #include "pass.h"
-// #include "../global.h"
+#include "../indirect/global.h"
 #include "imgui.h"
 
 #include "cuda/context.h"
@@ -100,21 +100,18 @@ void ProbePass::Run() noexcept
     m_timer.Start();
     {
 
-        struct
-        {
-            uint32_t w, h;
-        } raygbuffersize{static_cast<uint32_t>(m_irradiancerays_perprobe),
-                         static_cast<uint32_t>(std::pow(m_probecountperside, 3))};
         // if (m_firstframe)
         // {
         //     Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(raygbuffersize);
         //     m_firstframe = false;
         // }
-        m_optix_launch_params.rayhitnormal.SetData(m_rayhitnormal->cuda_res.ptr, raygbuffersize.w * raygbuffersize.h);
-        m_optix_launch_params.raydirection.SetData(m_raydirection->cuda_res.ptr, raygbuffersize.w * raygbuffersize.h);
+        m_optix_launch_params.rayhitnormal.SetData(m_rayhitnormal->cuda_res.ptr,
+                                                   m_raygbuffersize.w * m_raygbuffersize.h);
+        m_optix_launch_params.raydirection.SetData(m_raydirection->cuda_res.ptr,
+                                                   m_raygbuffersize.w * m_raygbuffersize.h);
         m_optix_launch_params.rayhitposition.SetData(m_rayhitposition->cuda_res.ptr,
-                                                     raygbuffersize.w * raygbuffersize.h);
-        m_optix_launch_params.rayradiance.SetData(m_rayradiance->cuda_res.ptr, raygbuffersize.w * raygbuffersize.h);
+                                                     m_raygbuffersize.w * m_raygbuffersize.h);
+        m_optix_launch_params.rayradiance.SetData(m_rayradiance->cuda_res.ptr, m_raygbuffersize.w * m_raygbuffersize.h);
         // auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
         // m_optix_launch_params.rayradiance.SetData(frame_buffer.cuda_ptr, raygbuffersize.w * raygbuffersize.h);
 
@@ -138,13 +135,6 @@ void ProbePass::Run() noexcept
 
         //     Pupil::Log::Info("image was saved successfully in [{}].\n", path1.string());
         // }
-
-        struct
-        {
-            uint32_t w, h;
-        } probeirradiancesize{
-            static_cast<uint32_t>(m_probecountperside * m_probecountperside * (m_probesidelength + 2) + 2),
-            static_cast<uint32_t>(m_probecountperside * (m_probesidelength + 2) + 2)};
 
         // if (m_firstframe)
         // {
@@ -182,10 +172,11 @@ void ProbePass::Run() noexcept
         // m_update_params.probeirradiance.SetData(frame_buffer.cuda_ptr, size.h * size.w);
         auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
         m_update_params.probeirradiance.SetData(probeirradiancebuffer->cuda_res.ptr,
-                                                probeirradiancesize.h * probeirradiancesize.w);
+                                                m_probeirradiancesize.h * m_probeirradiancesize.w);
 
-        UpdateProbeCPU(m_stream->GetStream(), m_update_params, make_uint2(probeirradiancesize.w, probeirradiancesize.h),
-                       m_irradiancerays_perprobe, m_probesidelength, m_maxdistance, m_firstframe ? 0.0f : m_hysteresis);
+        UpdateProbeCPU(m_stream->GetStream(), m_update_params,
+                       make_uint2(m_probeirradiancesize.w, m_probeirradiancesize.h), m_irradiancerays_perprobe,
+                       m_probesidelength, m_maxdistance, m_firstframe ? 0.0f : m_hysteresis);
 
         m_stream->Synchronize();
 
@@ -205,35 +196,42 @@ void ProbePass::Run() noexcept
         //     ++m_frame_cnt;
         // }
 
-        // auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
-        // if (m_show_type == 0)
-        // {
-        //     // pt
-        // }
-        // else if (m_show_type == 1)
-        // { // probeirradiance
+        auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
+        if (m_show_type == 0)
+        {
+            // pt
+        }
+        else if (m_show_type == 1)
+        { // probeirradiance
 
-        //     Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(probeirradiancesize);
+            if (show_type_changed)
+            {
+                Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(m_probeirradiancesize);
+                show_type_changed = false;
+            }
 
-        //     auto buf_mngr = util::Singleton<BufferManager>::instance();
-        //     auto probeirradiance = buf_mngr->GetBuffer("ddgi_probeirradiance");
-        //     cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)probeirradiance->cuda_res.ptr,
-        //                     probeirradiancesize.w * probeirradiancesize.h * sizeof(float4),
-        //                     cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream());
-        //     cudaStreamSynchronize(m_stream->GetStream());
-        // }
-        // else if (m_show_type == 2)
-        // { // rayGbuffer
+            auto buf_mngr = util::Singleton<BufferManager>::instance();
+            auto probeirradiance = buf_mngr->GetBuffer("ddgi_probeirradiance");
+            cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)probeirradiance->cuda_res.ptr,
+                            m_probeirradiancesize.w * m_probeirradiancesize.h * sizeof(float4),
+                            cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream());
+            cudaStreamSynchronize(m_stream->GetStream());
+        }
+        else if (m_show_type == 2)
+        { // rayGbuffer
+            if (show_type_changed)
+            {
+                Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(m_raygbuffersize);
+                show_type_changed = false;
+            }
 
-        //     Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(raygbuffersize);
-
-        //     auto buf_mngr = util::Singleton<BufferManager>::instance();
-        //     auto rayGbuffer = buf_mngr->GetBuffer("ddgi_rayradiance");
-        //     cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)rayGbuffer->cuda_res.ptr,
-        //                     raygbuffersize.w * raygbuffersize.h * sizeof(float4),
-        //                     cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream());
-        //     cudaStreamSynchronize(m_stream->GetStream());
-        // }
+            auto buf_mngr = util::Singleton<BufferManager>::instance();
+            auto rayGbuffer = buf_mngr->GetBuffer("ddgi_rayradiance");
+            cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)rayGbuffer->cuda_res.ptr,
+                            m_raygbuffersize.w * m_raygbuffersize.h * sizeof(float4),
+                            cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream());
+            cudaStreamSynchronize(m_stream->GetStream());
+        }
     }
     m_timer.Stop();
     m_time_cnt = m_timer.ElapsedMilliseconds();
@@ -314,8 +312,7 @@ void ProbePass::SetScene(World *world) noexcept
     BufferDesc probeirradiance_buf_desc = {
         .type = EBufferType::Cuda,
         .name = "ddgi_probeirradiance",
-        .size = static_cast<uint64_t>((m_probecountperside * m_probecountperside * (m_probesidelength + 2) + 2) *
-                                      (m_probecountperside * (m_probesidelength + 2) + 2) * sizeof(float4))};
+        .size = static_cast<uint64_t>(m_probeirradiancesize.w * m_probeirradiancesize.h * sizeof(float4))};
 
     m_probeirradiance = buf_mngr->AllocBuffer(probeirradiance_buf_desc);
 
@@ -328,7 +325,9 @@ void ProbePass::SetScene(World *world) noexcept
     min = center - (center - min) * shrink;
     max = center + (max - center) * shrink;
 
-    float3 probestep =
+    m_probestartpos = min;
+
+    m_probestep =
         make_float3((max.x - min.x) / float(m_probecountperside - 1), (max.y - min.y) / float(m_probecountperside - 1),
                     (max.z - min.z) / float(m_probecountperside - 1));
     for (int i = 0; i < m_probecountperside; i++)
@@ -337,7 +336,7 @@ void ProbePass::SetScene(World *world) noexcept
         {
             for (int k = 0; k < m_probecountperside; k++)
             {
-                m_probepos.push_back(min + make_float3(k * probestep.x, j * probestep.y, i * probestep.z));
+                m_probepos.push_back(min + make_float3(k * m_probestep.x, j * m_probestep.y, i * m_probestep.z));
             }
         }
     }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../indirect/global.h"
 #include "probeIntegrate.h"
 // #include "test.h"
 #include "type.h"
@@ -66,9 +67,11 @@ class ProbePass : public Pass
     CUdeviceptr m_probepos_cuda_memory = 0;
     std::vector<float3> m_probepos;
 
-    int m_probesidelength = 64;
-    int m_irradiancerays_perprobe = 64;
-    int m_probecountperside = 2;
+    // int m_probesidelength = 64;
+    // int m_irradiancerays_perprobe = 64;
+    // int m_probecountperside = 2;
+    // float3 m_probestep;
+
     float m_hysteresis = 0.98f;
     float m_maxdistance;
 

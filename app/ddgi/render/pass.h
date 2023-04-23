@@ -1,13 +1,13 @@
 #pragma once
 
-#include "type.h"
-
+#include "../indirect/global.h"
 #include "optix/pass.h"
 #include "optix/scene/scene.h"
 #include "scene/scene.h"
 #include "system/pass.h"
 #include "system/resource.h"
 #include "system/world.h"
+#include "type.h"
 
 #include "cuda/stream.h"
 

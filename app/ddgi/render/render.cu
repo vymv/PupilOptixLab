@@ -1,6 +1,7 @@
 #include "type.h"
 #include <optix.h>
 
+#include "../indirect/indirect.h"
 #include "optix/geometry.h"
 #include "optix/scene/emitter.h"
 #include "optix/util.h"
@@ -120,11 +121,17 @@ extern "C" __global__ void __raygen__main()
             }
         }
 
-        // indirect light
-
         record.radiance += record.env_radiance;
-
         result += record.radiance;
+
+        float3 indirectcolor =
+            ComputeIndirect(normalize(record.hit.geo.normal), record.hit.geo.position, ray_origin,
+                            optix_launch_params.probeirradiance.GetDataPtr(), optix_launch_params.probeStartPosition,
+                            optix_launch_params.probeStep, optix_launch_params.probeCount,
+                            optix_launch_params.probeirradiancesize, optix_launch_params.probeSideLength);
+
+        // printf("%f,%f,%f\n", indirectcolor.x, indirectcolor.y, indirectcolor.z);
+        // result += indirectcolor;
     }
 
     result /= optix_launch_params.spp;

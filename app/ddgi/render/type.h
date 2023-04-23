@@ -33,9 +33,16 @@ struct OptixLaunchParams
     optix::EmitterGroup emitters;
 
     cuda::RWArrayView<float4> frame_buffer;
+    cuda::ConstArrayView<float4> probeirradiance;
 
     // 可以理解为场景的bvh，用来发射光线和场景求交
     OptixTraversableHandle handle;
+
+    float3 probeStartPosition;
+    float3 probeStep;
+    int3 probeCount;
+    uint2 probeirradiancesize;
+    int probeSideLength;
 };
 
 // 下面三个是和SBT绑定的结构体，

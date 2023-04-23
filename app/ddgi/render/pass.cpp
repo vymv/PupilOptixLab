@@ -60,16 +60,25 @@ void RenderPass::Run() noexcept
         // 该buffer是cuda与dx12的共享资源，所以叫shared_buffer
         auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
 
+        auto buf_mngr = util::Singleton<BufferManager>::instance();
+        auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
+        m_optix_launch_params.probeirradiance.SetData(probeirradiancebuffer->cuda_res.ptr,
+                                                      m_probeirradiancesize.w * m_probeirradiancesize.h);
+
         if (m_show_type == 0)
         { // pt
-          // frame_buffer写入的内容将会被展示到gui上
-          // resize
-            // struct
-            // {
-            //     uint32_t w, h;
-            // } size{static_cast<uint32_t>(m_optix_launch_params.config.frame.width),
-            //        static_cast<uint32_t>(m_optix_launch_params.config.frame.height)};
-            // Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
+            // frame_buffer写入的内容将会被展示到gui上
+            // resize
+            if (show_type_changed)
+            {
+                struct
+                {
+                    uint32_t w, h;
+                } size{static_cast<uint32_t>(m_optix_launch_params.config.frame.width),
+                       static_cast<uint32_t>(m_optix_launch_params.config.frame.height)};
+                Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
+                show_type_changed = false;
+            }
 
             m_optix_launch_params.frame_buffer.SetData(frame_buffer.cuda_ptr, m_output_pixel_num);
             m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
@@ -159,6 +168,13 @@ void RenderPass::SetScene(World *world) noexcept
     m_optix_launch_params.handle = world->optix_scene->ias_handle;
     m_optix_launch_params.emitters = world->optix_scene->emitters->GetEmitterGroup();
 
+    m_optix_launch_params.probeStartPosition = m_probestartpos;
+    m_optix_launch_params.probeStep = m_probestep;
+    m_optix_launch_params.probeCount = make_int3(m_probecountperside, m_probecountperside, m_probecountperside);
+    m_optix_launch_params.probeirradiancesize = make_uint2(m_probeirradiancesize.w, m_probeirradiancesize.h);
+    m_optix_launch_params.probeSideLength = m_probesidelength;
+    // m_optix_launch_params.probeirradiance.SetData(0, 0);
+
     SetSBT(world->scene.get());
 
     m_dirty = true;
@@ -217,7 +233,9 @@ void RenderPass::Inspector() noexcept
 {
     // constexpr auto show_type = std::array{"render result", "albedo", "normal"};
     constexpr auto show_type = std::array{"render result", "probeirradiance", "rayGbuffer"};
-    ImGui::Combo("result", &m_show_type, show_type.data(), (int)show_type.size());
+
+    if (ImGui::Combo("result", &m_show_type, show_type.data(), (int)show_type.size()))
+        show_type_changed = true;
 
     ImGui::InputInt("spp", &m_spp);
     if (m_spp < 1)
