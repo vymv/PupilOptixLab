@@ -27,6 +27,8 @@ add_executable(${target_name}
     probe/type.h
     probe/probeIntegrate.cu
     probe/probeIntegrate.h
+    probe/probeCopyBorder.cu
+    probe/probeCopyBorder.h
     render/pass.h
     render/pass.cpp
     render/type.h

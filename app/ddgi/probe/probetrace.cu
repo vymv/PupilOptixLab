@@ -1,6 +1,7 @@
 #include "type.h"
 #include <optix.h>
 
+#include "../indirect/indirect.h"
 #include "optix/geometry.h"
 #include "optix/scene/emitter.h"
 #include "optix/util.h"
@@ -121,33 +122,41 @@ extern "C" __global__ void __raygen__main()
         record.radiance += emission;
     }
     // direct light sampling
+
+    auto &emitter = optix_launch_params.emitters.SelectOneEmiiter(record.random.Next());
+    auto emitter_sample_record = emitter.SampleDirect(local_hit.geo, record.random.Next2());
+
+    if (!optix::IsZero(emitter_sample_record.pdf))
     {
-        auto &emitter = optix_launch_params.emitters.SelectOneEmiiter(record.random.Next());
-        auto emitter_sample_record = emitter.SampleDirect(local_hit.geo, record.random.Next2());
+        bool occluded =
+            optix::Emitter::TraceShadowRay(optix_launch_params.handle, local_hit.geo.position, emitter_sample_record.wi,
+                                           0.001f, emitter_sample_record.distance - 0.001f);
 
-        if (!optix::IsZero(emitter_sample_record.pdf))
+        if (!occluded)
         {
-            bool occluded = optix::Emitter::TraceShadowRay(optix_launch_params.handle, local_hit.geo.position,
-                                                           emitter_sample_record.wi, 0.001f,
-                                                           emitter_sample_record.distance - 0.001f);
-
-            if (!occluded)
+            float3 wi = optix::ToLocal(emitter_sample_record.wi, local_hit.geo.normal);
+            float3 wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
+            auto [f, pdf] = record.hit.mat.Eval(wi, wo, local_hit.geo.texcoord);
+            if (!optix::IsZero(f))
             {
-                float3 wi = optix::ToLocal(emitter_sample_record.wi, local_hit.geo.normal);
-                float3 wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
-                auto [f, pdf] = record.hit.mat.Eval(wi, wo, local_hit.geo.texcoord);
-                if (!optix::IsZero(f))
-                {
-                    float NoL = dot(local_hit.geo.normal, emitter_sample_record.wi);
-                    emitter_sample_record.pdf *= emitter.select_probability;
-                    record.radiance += emitter_sample_record.radiance * f * NoL / emitter_sample_record.pdf;
-                }
+                float NoL = dot(local_hit.geo.normal, emitter_sample_record.wi);
+                emitter_sample_record.pdf *= emitter.select_probability;
+                record.radiance += emitter_sample_record.radiance * f * NoL / emitter_sample_record.pdf;
             }
         }
     }
 
     record.radiance += record.env_radiance;
     result += record.radiance;
+
+    float3 il_wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
+    float3 indirectcolor =
+        ComputeIndirect(normalize(record.hit.geo.normal), record.hit.geo.position, ray_origin,
+                        optix_launch_params.probeirradiance.GetDataPtr(), optix_launch_params.probeStartPosition,
+                        optix_launch_params.probeStep, optix_launch_params.probeCount,
+                        optix_launch_params.probeirradiancesize, optix_launch_params.probeSideLength);
+    auto [f, pdf] = record.hit.mat.Eval(il_wo, il_wo, local_hit.geo.texcoord);
+    result += indirectcolor * f;
 
     optix_launch_params.rayradiance[pixel_index] = make_float4(result, 1.f);
     optix_launch_params.rayhitposition[pixel_index] = record.hit.geo.position;

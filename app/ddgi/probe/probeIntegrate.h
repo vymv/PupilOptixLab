@@ -24,3 +24,6 @@ struct UpdateParams
 //                     int probeSideLength);
 void UpdateProbeCPU(cudaStream_t stream, Pupil::ddgi::probe::UpdateParams update_params, uint2 size, int raysPerProbe,
                     int probeSideLengt, float maxDistance, float hysteresis);
+
+void ChangeAlphaCPU(cudaStream_t stream, Pupil::cuda::RWArrayView<float4> &probeirradiance_show,
+                    Pupil::cuda::ConstArrayView<float4> probeirradiance, uint2 size);

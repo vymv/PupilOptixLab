@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../indirect/global.h"
+// #include "../indirect/indirect.h"
 #include "optix/pass.h"
 #include "optix/scene/scene.h"
 #include "scene/scene.h"

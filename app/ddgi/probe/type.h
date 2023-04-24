@@ -32,6 +32,13 @@ struct OptixLaunchParams
     //  cuda::RWArrayView<float4> normal;
 
     OptixTraversableHandle handle;
+
+    float3 probeStartPosition;
+    float3 probeStep;
+    int3 probeCount;
+    uint2 probeirradiancesize;
+    int probeSideLength;
+    cuda::ConstArrayView<float4> probeirradiance;
 };
 
 struct RayGenData

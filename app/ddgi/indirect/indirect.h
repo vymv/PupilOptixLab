@@ -32,22 +32,16 @@ __device__ int2 textureCoordFromDirection(float3 dir, int probeIndex, int fullTe
     // Length of a probe side, plus one pixel on each edge for the border
     float probeWithBorderSide = (float)probeSideLength + 2.0f;
 
-    float2 octCoordNormalizedToTextureDimensions = (normalizedOctCoordZeroOne * (float)probeSideLength) /
-                                                   make_float2((float)fullTextureWidth, (float)fullTextureHeight);
-
+    float2 octCoordNormalizedToTextureDimensions = normalizedOctCoordZeroOne * (float)probeSideLength;
     int probesPerRow = (fullTextureWidth - 2) / (int)probeWithBorderSide;
 
     // Add (2,2) back to texCoord within larger texture. Compensates for 1 pix
     // border around texture and further 1 pix border around top left probe.
-    float2 probeTopLeftPosition = make_float2(probeIndex % probesPerRow * probeWithBorderSide,
+    float2 probeTopLeftPosition = make_float2((probeIndex % probesPerRow) * probeWithBorderSide,
                                               (probeIndex / probesPerRow) * probeWithBorderSide) +
                                   make_float2(2.0f);
 
-    float2 normalizedProbeTopLeftPosition =
-        probeTopLeftPosition / make_float2((float)fullTextureWidth, (float)fullTextureHeight);
-
-    return make_int2((normalizedProbeTopLeftPosition + octCoordNormalizedToTextureDimensions) *
-                     make_float2(fullTextureWidth, fullTextureHeight));
+    return make_int2(probeTopLeftPosition + octCoordNormalizedToTextureDimensions);
 }
 
 __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, const float3 gbuffer_ws_rayorigin,
@@ -56,6 +50,7 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
 {
 
     const float epsilon = 1e-6;
+    const float energyConservation = 0.95;
     // gbuffer_WS_NORMAL_buffer
     // gbuffer_WS_POSITION_buffer
     // gbuffer_WS_RAY_ORIGIN_buffer
@@ -94,6 +89,8 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
         float4 irradiance = probeirradiance[texCoord.x + texCoord.y * probeirradiancesize.x];
 
         // printf("probeIndex:%d\n", probeIndex);
+        // if (texCoord.x < 6 || texCoord.y < 6)
+        // printf("offset:%d,%d,%d\n", offset.x, offset.y, offset.z);
         // printf("texCoord:%d,%d\n", texCoord.x, texCoord.y);
         // printf("irradiance:%f,%f,%f,%f\n", irradiance.x, irradiance.y, irradiance.z);
         // printf("trilinear:%f,%f,%f\n", trilinear.x, trilinear.y, trilinear.z);
@@ -105,10 +102,10 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
     }
 
     float3 netIrradiance = sumIrradiance / sumWeight;
-
+    netIrradiance *= energyConservation;
     float3 indirect = 2.0 * M_PIf * netIrradiance;
     // indirect = make_float3(0.5f);
-    //    printf("%f,%f,%f", indirect.x, indirect.y, indirect.z);
+    // printf("%f,%f,%f", indirect.x, indirect.y, indirect.z);
     //     return indirect;
     return indirect;
 }

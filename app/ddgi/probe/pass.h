@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../indirect/global.h"
+#include "probeCopyBorder.h"
 #include "probeIntegrate.h"
 // #include "test.h"
 #include "type.h"
@@ -55,7 +56,6 @@ class ProbePass : public Pass
     optix::CameraHelper *m_world_camera = nullptr;
 
     Timer m_timer;
-    bool m_firstframe = true;
 
     Buffer *m_rayradiance = nullptr;
     Buffer *m_rayhitposition = nullptr;
@@ -65,6 +65,7 @@ class ProbePass : public Pass
 
     CUdeviceptr m_randomoriention_cuda_memory = 0;
     CUdeviceptr m_probepos_cuda_memory = 0;
+    CUdeviceptr m_zero_cuda_memory = 0;
     std::vector<float3> m_probepos;
 
     // int m_probesidelength = 64;
@@ -72,7 +73,7 @@ class ProbePass : public Pass
     // int m_probecountperside = 2;
     // float3 m_probestep;
 
-    float m_hysteresis = 0.98f;
+    float m_hysteresis = 0.9f;
     float m_maxdistance;
 
     unsigned int m_frame_cnt = 0;
