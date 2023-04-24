@@ -187,6 +187,7 @@ void ProbePass::Run() noexcept
         // 输出
         // auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
         // m_update_params.probeirradiance.SetData(frame_buffer.cuda_ptr, size.h * size.w);
+
         auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
         m_update_params.probeirradiance.SetData(probeirradiancebuffer->cuda_res.ptr,
                                                 m_probeirradiancesize.h * m_probeirradiancesize.w);
@@ -354,6 +355,8 @@ void ProbePass::SetScene(World *world) noexcept
         .size = static_cast<uint64_t>(m_probeirradiancesize.w * m_probeirradiancesize.h * sizeof(float4))};
 
     m_probeirradiance = buf_mngr->AllocBuffer(probeirradiance_buf_desc);
+    // m_update_params.probeirradiance.SetData(m_probeirradiance->cuda_res.ptr,
+    //                                         m_probeirradiancesize.h * m_probeirradiancesize.w);
 
     // 确定probe位置
     float3 min = make_float3(world->scene->aabb.min.x, world->scene->aabb.min.y, world->scene->aabb.min.z);

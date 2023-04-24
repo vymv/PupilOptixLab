@@ -73,7 +73,7 @@ class ProbePass : public Pass
     // int m_probecountperside = 2;
     // float3 m_probestep;
 
-    float m_hysteresis = 0.9f;
+    float m_hysteresis = 0.95f;
     float m_maxdistance;
 
     unsigned int m_frame_cnt = 0;

@@ -64,7 +64,6 @@ __global__ void UpdateProbe(float4 *probeirradiance, const float4 *raygbuffer, c
     if (pixel_y >= size.y)
         return;
     int pixel_index = pixel_x + size.x * pixel_y;
-    probeirradiance[pixel_index] = make_float4(0.0f);
 
     const float energyConservation = 0.95f;
 

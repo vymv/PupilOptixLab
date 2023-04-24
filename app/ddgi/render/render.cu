@@ -120,7 +120,7 @@ extern "C" __global__ void __raygen__main()
         }
 
         record.radiance += record.env_radiance;
-        // result += record.radiance;
+        result += record.radiance;
 
         float3 il_wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
         float3 indirectcolor =
@@ -134,7 +134,6 @@ extern "C" __global__ void __raygen__main()
 
     result /= optix_launch_params.spp;
     optix_launch_params.frame_buffer[pixel_index] = make_float4(result, 1.f);
-    // optix_launch_params.frame_buffer[pixel_index] = make_float4(0.5f);
 }
 
 extern "C" __global__ void __miss__default()
