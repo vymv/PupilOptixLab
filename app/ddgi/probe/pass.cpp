@@ -120,16 +120,26 @@ void ProbePass::Run() noexcept
             auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
             m_optix_launch_params.probeirradiance.SetData(probeirradiancebuffer->cuda_res.ptr,
                                                           m_probeirradiancesize.w * m_probeirradiancesize.h);
+
+            auto probedepthbuffer = buf_mngr->GetBuffer("ddgi_probedepth");
+            m_optix_launch_params.probedepth.SetData(probedepthbuffer->cuda_res.ptr,
+                                                     m_probeirradiancesize.w * m_probeirradiancesize.h);
         }
         else
         {
-            std::vector<float4> probeirradiancevector;
-            probeirradiancevector.resize(m_probeirradiancesize.w * m_probeirradiancesize.h);
-            probeirradiancevector.assign(probeirradiancevector.size(), make_float4(0, 0, 0, 0));
-            CUDA_FREE(m_zero_cuda_memory);
-            m_zero_cuda_memory =
-                cuda::CudaMemcpyToDevice(probeirradiancevector.data(), probeirradiancevector.size() * sizeof(float3));
-            m_optix_launch_params.probeirradiance.SetData(m_zero_cuda_memory, probeirradiancevector.size());
+            std::vector<float4> probezerovector;
+            probezerovector.resize(m_probeirradiancesize.w * m_probeirradiancesize.h);
+            probezerovector.assign(probezerovector.size(), make_float4(0, 0, 0, 0));
+
+            CUDA_FREE(m_zeroradiance_cuda_memory);
+            m_zeroradiance_cuda_memory =
+                cuda::CudaMemcpyToDevice(probezerovector.data(), probezerovector.size() * sizeof(float3));
+            m_optix_launch_params.probeirradiance.SetData(m_zeroradiance_cuda_memory, probezerovector.size());
+
+            CUDA_FREE(m_zerodepth_cuda_memory);
+            m_zerodepth_cuda_memory =
+                cuda::CudaMemcpyToDevice(probezerovector.data(), probezerovector.size() * sizeof(float3));
+            m_optix_launch_params.probedepth.SetData(m_zerodepth_cuda_memory, probezerovector.size());
         }
 
         m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,

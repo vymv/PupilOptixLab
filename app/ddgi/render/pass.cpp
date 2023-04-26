@@ -64,6 +64,9 @@ void RenderPass::Run() noexcept
         auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
         m_optix_launch_params.probeirradiance.SetData(probeirradiancebuffer->cuda_res.ptr,
                                                       m_probeirradiancesize.w * m_probeirradiancesize.h);
+        auto probedepthbuffer = buf_mngr->GetBuffer("ddgi_probedepth");
+        m_optix_launch_params.probedepth.SetData(probedepthbuffer->cuda_res.ptr,
+                                                 m_probeirradiancesize.w * m_probeirradiancesize.h);
 
         if (m_show_type == 0)
         { // pt

@@ -44,9 +44,9 @@ __device__ int2 textureCoordFromDirection(float3 dir, int probeIndex, int fullTe
     return make_int2(probeTopLeftPosition + octCoordNormalizedToTextureDimensions);
 }
 
-__device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, const float3 gbuffer_ws_rayorigin,
-                                  const float4 *probeirradiance, float3 probeStartPosition, float3 probeStep,
-                                  int3 probeCount, uint2 probeirradiancesize, int probeSideLength,
+__device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, const float3 rayorigin,
+                                  const float4 *probeirradiance, const float4 *probedepth, float3 probeStartPosition,
+                                  float3 probeStep, int3 probeCount, uint2 probeirradiancesize, int probeSideLength,
                                   float energyConservation)
 {
 
@@ -60,12 +60,6 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
     {
         return make_float3(0.0f);
     }
-
-    //     #ifdef RT_GBUFFER
-    //     Vector3 w_o = normalize(texelFetch(gbuffer_WS_RAY_ORIGIN_buffer, C, 0).xyz - wsPosition);
-    // #else
-    // 	Vector3 w_o = normalize(gbuffer_camera_frame[3] - wsPosition);
-    // #endif
 
     int3 baseGridCoord = getBaseGridCoord(probeStartPosition, probeStep, probeCount, wsPosition);
     float3 baseProbePos = gridCoordToPosition(probeStartPosition, probeStep, baseGridCoord);
@@ -88,11 +82,26 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
         {
             float3 trueDirectionToProbe = normalize(probePos - wsPosition);
             // weight *= max(0.0001, dot(trueDirectionToProbe, wsN));
-            weight *= pow(max(0.0001, (dot(trueDirectionToProbe, wsN) + 1.0) * 0.5),2) + 0.2;
+            weight *= pow(max(0.0001, (dot(trueDirectionToProbe, wsN) + 1.0) * 0.5), 2) + 0.2;
         }
 
         // Moment visibility test (chebyshev)
         {
+            float normalBias = 0.05f;
+            float3 w_o = normalize(rayorigin - wsPosition);
+            float3 probeToPoint = wsPosition - probePos + (wsN + 3.0 * w_o) * normalBias;
+            float3 dir = normalize(-probeToPoint);
+            int2 texCoord = textureCoordFromDirection(-dir, probeIndex, probeirradiancesize.x, probeirradiancesize.y,
+                                                      probeSideLength);
+            float4 temp = probedepth[texCoord.x + texCoord.y * probeirradiancesize.x];
+            float mean = temp.x;
+            float variance = abs(pow(temp.x, 2) - temp.y);
+
+            float distToProbe = length(probeToPoint);
+            float chebyshevWeight = variance / (variance + pow(max(distToProbe - mean, 0.0), 2));
+            chebyshevWeight = max(pow(chebyshevWeight, 3), 0.0);
+
+            weight *= (distToProbe <= mean) ? 1.0 : chebyshevWeight;
         }
 
         // Avoid zero
@@ -101,8 +110,9 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
         const float crushThreshold = 0.2;
         if (weight < crushThreshold)
         {
-            weight *= weight * weight * (1.0 / pow(crushThreshold,2));
+            weight *= weight * weight * (1.0 / pow(crushThreshold, 2));
         }
+
         // Trilinear
         float3 trilinear = (1.0 - alpha) * (1 - make_float3(offset)) + alpha * make_float3(offset);
         weight *= trilinear.x * trilinear.y * trilinear.z;

@@ -66,7 +66,8 @@ class ProbePass : public Pass
 
     CUdeviceptr m_randomoriention_cuda_memory = 0;
     CUdeviceptr m_probepos_cuda_memory = 0;
-    CUdeviceptr m_zero_cuda_memory = 0;
+    CUdeviceptr m_zeroradiance_cuda_memory = 0;
+    CUdeviceptr m_zerodepth_cuda_memory = 0;
     std::vector<float3> m_probepos;
 
     // int m_probesidelength = 64;

@@ -123,11 +123,11 @@ extern "C" __global__ void __raygen__main()
         result += record.radiance;
 
         float3 il_wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
-        float3 indirectcolor =
-            ComputeIndirect(normalize(record.hit.geo.normal), record.hit.geo.position, ray_origin,
-                            optix_launch_params.probeirradiance.GetDataPtr(), optix_launch_params.probeStartPosition,
-                            optix_launch_params.probeStep, optix_launch_params.probeCount,
-                            optix_launch_params.probeirradiancesize, optix_launch_params.probeSideLength, 1.0f);
+        float3 indirectcolor = ComputeIndirect(
+            normalize(record.hit.geo.normal), record.hit.geo.position, ray_origin,
+            optix_launch_params.probeirradiance.GetDataPtr(), optix_launch_params.probedepth.GetDataPtr(),
+            optix_launch_params.probeStartPosition, optix_launch_params.probeStep, optix_launch_params.probeCount,
+            optix_launch_params.probeirradiancesize, optix_launch_params.probeSideLength, 1.0f);
         auto [f, pdf] = record.hit.mat.Eval(il_wo, il_wo, local_hit.geo.texcoord);
         result += indirectcolor * f;
     }

@@ -39,6 +39,7 @@ struct OptixLaunchParams
     uint2 probeirradiancesize;
     int probeSideLength;
     cuda::ConstArrayView<float4> probeirradiance;
+    cuda::ConstArrayView<float4> probedepth;
 };
 
 struct RayGenData

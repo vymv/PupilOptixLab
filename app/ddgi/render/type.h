@@ -34,6 +34,7 @@ struct OptixLaunchParams
 
     cuda::RWArrayView<float4> frame_buffer;
     cuda::ConstArrayView<float4> probeirradiance;
+    cuda::ConstArrayView<float4> probedepth;
 
     // 可以理解为场景的bvh，用来发射光线和场景求交
     OptixTraversableHandle handle;
