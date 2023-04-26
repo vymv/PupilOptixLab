@@ -17,13 +17,12 @@ struct UpdateParams
     cuda::ConstArrayView<float3> rayhitnormal;
 
     cuda::RWArrayView<float4> probeirradiance;
+    cuda::RWArrayView<float4> probedepth;
 };
 } // namespace Pupil::ddgi::probe
-// void UpdateProbeCPU(cudaStream_t stream, Pupil::cuda::ConstArrayView<float4> rayGbuffer,
-//                     Pupil::cuda::RWArrayView<float4> &probeIrradiance, uint2 size, int raysPerProbe,
-//                     int probeSideLength);
+
 void UpdateProbeCPU(cudaStream_t stream, Pupil::ddgi::probe::UpdateParams update_params, uint2 size, int raysPerProbe,
-                    int probeSideLengt, float maxDistance, float hysteresis);
+                    int probeSideLengt, float maxDistance, float hysteresis, float depthSharpness, bool irradiance);
 
 void ChangeAlphaCPU(cudaStream_t stream, Pupil::cuda::RWArrayView<float4> &probeirradiance_show,
                     Pupil::cuda::ConstArrayView<float4> probeirradiance, uint2 size);

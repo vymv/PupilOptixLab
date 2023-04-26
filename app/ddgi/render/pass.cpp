@@ -232,7 +232,7 @@ void RenderPass::BindingEventCallback() noexcept
 void RenderPass::Inspector() noexcept
 {
     // constexpr auto show_type = std::array{"render result", "albedo", "normal"};
-    constexpr auto show_type = std::array{"render result", "probeirradiance", "rayGbuffer"};
+    constexpr auto show_type = std::array{"render result", "probeirradiance", "rayGbuffer", "probedepth"};
 
     if (ImGui::Combo("result", &m_show_type, show_type.data(), (int)show_type.size()))
         show_type_changed = true;

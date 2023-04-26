@@ -2,31 +2,6 @@
 #include "cuda/vec_math.h"
 #include "probeIntegrate.h"
 
-// __device__ float2 octEncode(float3 v)
-// {
-//     float l1norm = fabsf(v.x) + fabsf(v.y) + fabsf(v.z);
-//     float2 result = make_float2(v.x, v.y) * (1.0f / l1norm);
-//     if (v.z < 0.0f)
-//     {
-//         result = (make_float2(1.0f) - make_float2(fabsf(result.y), fabsf(result.x))) *
-//                  (make_float2(result.x >= 0 ? 1.0 : 0.0, result.y >= 0 ? 1.0 : 0.0));
-//     }
-//     return result;
-// }
-
-// __device__ float3 octDecode(float2 o)
-// {
-//     float3 v = make_float3(o.x, o.y, 1.0f - fabsf(o.x) - fabsf(o.y));
-//     if (v.z < 0.0f)
-//     {
-//         float2 xy = (make_float2(1.0f) - make_float2(fabsf(v.y), fabsf(v.x))) *
-//                     (make_float2(v.x >= 0 ? 1.0 : 0.0, v.y >= 0 ? 1.0 : 0.0));
-//         v.x = xy.x;
-//         v.y = xy.y;
-//     }
-//     return normalize(v);
-// }
-
 __device__ float2 normalizedOctCoord(int2 fragCoord, int probeSideLength)
 {
     int probeWithBorderSide = probeSideLength + 2;
@@ -50,10 +25,22 @@ __global__ void ChangeAlpha(float4 *probeirradiance_show, const float4 *probeirr
                                                     probeirradiance[pixel_index].z, 1.0);
 }
 // probeRayGbuffer -> probeTexture
-__global__ void UpdateProbe(float4 *probeirradiance, const float4 *raygbuffer, const float3 *rayorigin,
-                            const float3 *raydirection, const float3 *rayhitposition, const float3 *rayhitnormal,
-                            uint2 size, int raysPerProbe, int probeSideLength, float maxDistance, float hysteresis)
+__global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const float4 *raygbuffer,
+                            const float3 *rayorigin, const float3 *raydirection, const float3 *rayhitposition,
+                            const float3 *rayhitnormal, uint2 size, int raysPerProbe, int probeSideLength,
+                            float maxDistance, float hysteresis, float depthSharpness, bool irradiance)
 {
+    // __global__ void UpdateProbe(float4 *probeirradiance, const float4 *raygbuffer, const float3 *rayorigin,
+    //                             const float3 *raydirection, const float3 *rayhitposition, const float3 *rayhitnormal,
+    //                             uint2 size, int raysPerProbe, int probeSideLength, float maxDistance, float
+    //                             hysteresis, float depthSharpness, bool irradiance)
+    // {
+
+    float4 *output = nullptr;
+    if (irradiance)
+        output = probeirradiance;
+    else
+        output = probedepth;
 
     const float epsilon = 1e-6;
     int pixel_x = threadIdx.x + blockIdx.x * blockDim.x;
@@ -68,9 +55,8 @@ __global__ void UpdateProbe(float4 *probeirradiance, const float4 *raygbuffer, c
     const float energyConservation = 0.95f;
 
     float4 result = make_float4(0.0f);
-    float3 oldIrradiance =
-        make_float3(probeirradiance[pixel_index].x, probeirradiance[pixel_index].y, probeirradiance[pixel_index].z);
-    float3 newIrradiance = make_float3(0.0f);
+    float3 oldvaule = make_float3(output[pixel_index].x, output[pixel_index].y, output[pixel_index].z);
+    float3 newvaule = make_float3(0.0f);
 
     // 计算probeId
     int probeWithBorderSide = probeSideLength + 2;
@@ -79,7 +65,7 @@ __global__ void UpdateProbe(float4 *probeirradiance, const float4 *raygbuffer, c
 
     if (probeId == -1)
     {
-        probeirradiance[pixel_index] = make_float4(0.0f);
+        output[pixel_index] = make_float4(0.0f);
         return;
     }
 
@@ -98,36 +84,51 @@ __global__ void UpdateProbe(float4 *probeirradiance, const float4 *raygbuffer, c
         float3 probeLocation = rayorigin[rayIndex];
         float3 rayHitNormal = rayhitnormal[rayIndex];
 
-        //   rayHitLocation = rayHitLocation + rayHitNormal * 0.01f;
-        //   float rayProbeDistance = min(maxDistance, length(probeLocation - rayHitLocation));
+        // 计算距离
+        rayHitLocation = rayHitLocation + rayHitNormal * 0.01f;
+        float rayProbeDistance = min(maxDistance, length(probeLocation - rayHitLocation));
 
-        // if (dot(rayHitNormal, rayHitNormal) < epsilon)
-        // {
-        //     rayProbeDistance = maxDistance;
-        // }
-        float weight = max(0.0, dot(texelDirection, rayDirection));
+        if (dot(rayHitNormal, rayHitNormal) < epsilon)
+        {
+            rayProbeDistance = maxDistance;
+        }
+
+        // Weight
+        float weight = 0.0;
+        if (irradiance)
+        {
+            weight = max(0.0, dot(texelDirection, rayDirection));
+        }
+        else
+        {
+            weight = pow(max(0.0, dot(texelDirection, rayDirection)), depthSharpness);
+        }
+
+        // Accumulate
         if (weight >= epsilon)
         {
-            result = result + make_float4(rayHitRadiance * weight, weight);
+            if (irradiance)
+            {
+                result = result + make_float4(rayHitRadiance * weight, weight);
+            }
+            else
+            {
+                result = result + make_float4(rayProbeDistance * weight, rayProbeDistance * rayProbeDistance * weight,
+                                              0.0, weight);
+            }
         }
     }
     if (result.w > epsilon)
     {
-        newIrradiance = make_float3(result.x, result.y, result.z) / result.w;
+        newvaule = make_float3(result.x, result.y, result.z) / result.w;
         float srcfactor = 1.0f - hysteresis;
-        // float srcfactor = 1.0f;
-        // blend: srccolor * srcfactor + dstcolor * (1 - srccolor)
-        result = make_float4(newIrradiance * srcfactor + oldIrradiance * (1.0f - srcfactor), srcfactor);
-        // printf("old:%f,%f,%f,%f\n", probeirradiance[pixel_index].x, probeirradiance[pixel_index].y,
-        //        probeirradiance[pixel_index].z, probeirradiance[pixel_index].w);
-        // printf("new:%f,%f,%f,%f\n", result.x, result.y, result.z, result.w);
+        result = make_float4(newvaule * srcfactor + oldvaule * (1.0f - srcfactor), srcfactor);
     }
-    probeirradiance[pixel_index] = result;
-    // probeirradiance[pixel_index] = make_float4(0.5f);
+    output[pixel_index] = result;
 }
 
 void UpdateProbeCPU(cudaStream_t stream, Pupil::ddgi::probe::UpdateParams update_params, uint2 size, int raysPerProbe,
-                    int probeSideLength, float maxDistance, float hysteresis)
+                    int probeSideLength, float maxDistance, float hysteresis, float depthSharpness, bool irradiance)
 {
 
     constexpr int block_size_x = 32;
@@ -135,12 +136,16 @@ void UpdateProbeCPU(cudaStream_t stream, Pupil::ddgi::probe::UpdateParams update
     int grid_size_x = (size.x + block_size_x - 1) / block_size_x;
     int grid_size_y = (size.y + block_size_y - 1) / block_size_y;
     UpdateProbe<<<dim3(grid_size_x, grid_size_y), dim3(block_size_x, block_size_y), 0, stream>>>(
-        update_params.probeirradiance.GetDataPtr(), update_params.rayradiance.GetDataPtr(),
-        update_params.rayorgin.GetDataPtr(), update_params.raydirection.GetDataPtr(),
-        update_params.rayhitposition.GetDataPtr(), update_params.rayhitnormal.GetDataPtr(), size, raysPerProbe,
-        probeSideLength, maxDistance, hysteresis);
+        update_params.probeirradiance.GetDataPtr(), update_params.probedepth.GetDataPtr(),
+        update_params.rayradiance.GetDataPtr(), update_params.rayorgin.GetDataPtr(),
+        update_params.raydirection.GetDataPtr(), update_params.rayhitposition.GetDataPtr(),
+        update_params.rayhitnormal.GetDataPtr(), size, raysPerProbe, probeSideLength, maxDistance, hysteresis,
+        depthSharpness, irradiance);
     // UpdateProbe<<<dim3(grid_size_x, grid_size_y), dim3(block_size_x, block_size_y), 0, stream>>>(
-    //     rayGbuffer.GetDataPtr(), probeIrradiance.GetDataPtr(), size, raysPerProbe, probeSideLength);
+    //     update_params.probeirradiance.GetDataPtr(), update_params.rayradiance.GetDataPtr(),
+    //     update_params.rayorgin.GetDataPtr(), update_params.raydirection.GetDataPtr(),
+    //     update_params.rayhitposition.GetDataPtr(), update_params.rayhitnormal.GetDataPtr(), size, raysPerProbe,
+    //     probeSideLength, maxDistance, hysteresis, depthSharpness, irradiance);
 }
 
 void ChangeAlphaCPU(cudaStream_t stream, Pupil::cuda::RWArrayView<float4> &probeirradiance_show,

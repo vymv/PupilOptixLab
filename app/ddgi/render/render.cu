@@ -127,7 +127,7 @@ extern "C" __global__ void __raygen__main()
             ComputeIndirect(normalize(record.hit.geo.normal), record.hit.geo.position, ray_origin,
                             optix_launch_params.probeirradiance.GetDataPtr(), optix_launch_params.probeStartPosition,
                             optix_launch_params.probeStep, optix_launch_params.probeCount,
-                            optix_launch_params.probeirradiancesize, optix_launch_params.probeSideLength);
+                            optix_launch_params.probeirradiancesize, optix_launch_params.probeSideLength, 1.0f);
         auto [f, pdf] = record.hit.mat.Eval(il_wo, il_wo, local_hit.geo.texcoord);
         result += indirectcolor * f;
     }

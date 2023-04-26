@@ -11,6 +11,7 @@ extern int m_irradiancerays_perprobe;
 extern int m_probecountperside;
 extern float3 m_probestep;
 extern float3 m_probestartpos;
+extern float m_depthSharpness;
 
 struct usize
 {

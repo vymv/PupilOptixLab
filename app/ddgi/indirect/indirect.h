@@ -46,11 +46,11 @@ __device__ int2 textureCoordFromDirection(float3 dir, int probeIndex, int fullTe
 
 __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, const float3 gbuffer_ws_rayorigin,
                                   const float4 *probeirradiance, float3 probeStartPosition, float3 probeStep,
-                                  int3 probeCount, uint2 probeirradiancesize, int probeSideLength)
+                                  int3 probeCount, uint2 probeirradiancesize, int probeSideLength,
+                                  float energyConservation)
 {
 
     const float epsilon = 1e-6;
-    const float energyConservation = 0.95;
     // gbuffer_WS_NORMAL_buffer
     // gbuffer_WS_POSITION_buffer
     // gbuffer_WS_RAY_ORIGIN_buffer
@@ -82,20 +82,34 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
         int3 offset = make_int3(i & 1, (i >> 1) & 1, (i >> 2) & 1);
         int3 probeGridCoord = clamp(baseGridCoord + offset, make_int3(0), probeCount - make_int3(1));
         int probeIndex = gridCoordToProbeIndex(probeCount, probeGridCoord);
+        float3 probePos = gridCoordToPosition(probeStartPosition, probeStep, probeGridCoord);
+
+        // Smooth backface test
+        {
+            float3 trueDirectionToProbe = normalize(probePos - wsPosition);
+            // weight *= max(0.0001, dot(trueDirectionToProbe, wsN));
+            weight *= pow(max(0.0001, (dot(trueDirectionToProbe, wsN) + 1.0) * 0.5),2) + 0.2;
+        }
+
+        // Moment visibility test (chebyshev)
+        {
+        }
+
+        // Avoid zero
+        weight = max(0.000001, weight);
+
+        const float crushThreshold = 0.2;
+        if (weight < crushThreshold)
+        {
+            weight *= weight * weight * (1.0 / pow(crushThreshold,2));
+        }
+        // Trilinear
         float3 trilinear = (1.0 - alpha) * (1 - make_float3(offset)) + alpha * make_float3(offset);
+        weight *= trilinear.x * trilinear.y * trilinear.z;
 
         int2 texCoord = textureCoordFromDirection(normalize(wsN), probeIndex, probeirradiancesize.x,
                                                   probeirradiancesize.y, probeSideLength);
         float4 irradiance = probeirradiance[texCoord.x + texCoord.y * probeirradiancesize.x];
-
-        // printf("probeIndex:%d\n", probeIndex);
-        // if (texCoord.x < 6 || texCoord.y < 6)
-        // printf("offset:%d,%d,%d\n", offset.x, offset.y, offset.z);
-        // printf("texCoord:%d,%d\n", texCoord.x, texCoord.y);
-        // printf("irradiance:%f,%f,%f,%f\n", irradiance.x, irradiance.y, irradiance.z);
-        // printf("trilinear:%f,%f,%f\n", trilinear.x, trilinear.y, trilinear.z);
-
-        weight *= trilinear.x * trilinear.y * trilinear.z;
 
         sumIrradiance += weight * make_float3(irradiance.x, irradiance.y, irradiance.z);
         sumWeight += weight;

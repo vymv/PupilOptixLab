@@ -192,9 +192,22 @@ void ProbePass::Run() noexcept
         m_update_params.probeirradiance.SetData(probeirradiancebuffer->cuda_res.ptr,
                                                 m_probeirradiancesize.h * m_probeirradiancesize.w);
 
+        auto probedepthbuffer = buf_mngr->GetBuffer("ddgi_probedepth");
+        m_update_params.probedepth.SetData(probedepthbuffer->cuda_res.ptr,
+                                           m_probeirradiancesize.h * m_probeirradiancesize.w);
+        // irradiance
         UpdateProbeCPU(m_stream->GetStream(), m_update_params,
                        make_uint2(m_probeirradiancesize.w, m_probeirradiancesize.h), m_irradiancerays_perprobe,
-                       m_probesidelength, m_maxdistance, m_frame_cnt == 0 ? 0.0f : m_hysteresis);
+                       m_probesidelength, m_maxdistance, m_frame_cnt == 0 ? 0.0f : m_hysteresis, m_depthSharpness,
+                       true);
+
+        m_stream->Synchronize();
+
+        // depth
+        UpdateProbeCPU(m_stream->GetStream(), m_update_params,
+                       make_uint2(m_probeirradiancesize.w, m_probeirradiancesize.h), m_irradiancerays_perprobe,
+                       m_probesidelength, m_maxdistance, m_frame_cnt == 0 ? 0.0f : m_hysteresis, m_depthSharpness,
+                       false);
 
         m_stream->Synchronize();
 
@@ -203,6 +216,12 @@ void ProbePass::Run() noexcept
         probeirradiance.SetData(probeirradiancebuffer->cuda_res.ptr, m_probeirradiancesize.h * m_probeirradiancesize.w);
         CopyBorderCPU(m_stream->GetStream(), probeirradiance,
                       make_uint2(m_probeirradiancesize.w, m_probeirradiancesize.h), m_probesidelength);
+        m_stream->Synchronize();
+
+        cuda::RWArrayView<float4> probedepth;
+        probedepth.SetData(probedepthbuffer->cuda_res.ptr, m_probeirradiancesize.h * m_probeirradiancesize.w);
+        CopyBorderCPU(m_stream->GetStream(), probedepth, make_uint2(m_probeirradiancesize.w, m_probeirradiancesize.h),
+                      m_probesidelength);
         m_stream->Synchronize();
 
         // {
@@ -264,6 +283,31 @@ void ProbePass::Run() noexcept
                             m_raygbuffersize.w * m_raygbuffersize.h * sizeof(float4),
                             cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream());
             cudaStreamSynchronize(m_stream->GetStream());
+        }
+        else if (m_show_type == 3)
+        { // probedepth
+            if (show_type_changed)
+            {
+                Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(m_probeirradiancesize);
+                show_type_changed = false;
+            }
+
+            cuda::RWArrayView<float4> probedepth_show;
+            cuda::ConstArrayView<float4> probedepth_origin;
+            probedepth_show.SetData(frame_buffer.cuda_ptr,
+                                    m_probeirradiancesize.w * m_probeirradiancesize.h * sizeof(float4));
+            auto probedepth = buf_mngr->GetBuffer("ddgi_probedepth");
+            probedepth_origin.SetData(probedepth->cuda_res.ptr, m_probeirradiancesize.w * m_probeirradiancesize.h);
+            ChangeAlphaCPU(m_stream->GetStream(), probedepth_show, probedepth_origin,
+                           make_uint2(m_probeirradiancesize.w, m_probeirradiancesize.h));
+            m_stream->Synchronize();
+
+            // auto buf_mngr = util::Singleton<BufferManager>::instance();
+            // auto probedepthbuffer = buf_mngr->GetBuffer("ddgi_probedepth");
+            // cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)probedepthbuffer->cuda_res.ptr,
+            //                 m_probeirradiancesize.w * m_probeirradiancesize.h * sizeof(float4),
+            //                 cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream());
+            // cudaStreamSynchronize(m_stream->GetStream());
         }
         m_frame_cnt++;
     }
@@ -355,6 +399,13 @@ void ProbePass::SetScene(World *world) noexcept
         .size = static_cast<uint64_t>(m_probeirradiancesize.w * m_probeirradiancesize.h * sizeof(float4))};
 
     m_probeirradiance = buf_mngr->AllocBuffer(probeirradiance_buf_desc);
+
+    BufferDesc probedepth_buf_desc = {
+        .type = EBufferType::Cuda,
+        .name = "ddgi_probedepth",
+        .size = static_cast<uint64_t>(m_probeirradiancesize.w * m_probeirradiancesize.h * sizeof(float4))};
+
+    m_probedepth = buf_mngr->AllocBuffer(probedepth_buf_desc);
     // m_update_params.probeirradiance.SetData(m_probeirradiance->cuda_res.ptr,
     //                                         m_probeirradiancesize.h * m_probeirradiancesize.w);
 
@@ -395,6 +446,8 @@ void ProbePass::SetScene(World *world) noexcept
     m_optix_launch_params.raydirection.SetData(0, 0);
     m_optix_launch_params.rayhitnormal.SetData(0, 0);
     m_update_params.probeirradiance.SetData(0, 0);
+    // m_update_params.probedepth.SetData(0, 0);
+
     m_optix_launch_params.handle = world->optix_scene->ias_handle;
     m_optix_launch_params.emitters = world->optix_scene->emitters->GetEmitterGroup();
 

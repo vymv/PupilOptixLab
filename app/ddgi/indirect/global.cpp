@@ -7,6 +7,7 @@ int m_irradiancerays_perprobe = 64;
 int m_probecountperside = 2;
 float3 m_probestep;
 float3 m_probestartpos;
+extern float m_depthSharpness = 50.0f;
 
 usize m_probeirradiancesize = {
     static_cast<uint32_t>(m_probecountperside * m_probecountperside * (m_probesidelength + 2) + 2),
