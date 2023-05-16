@@ -12,21 +12,17 @@
 
 extern "C" char ddgi_probe_pass_embedded_ptx_code[];
 
-namespace Pupil
-{
+namespace Pupil {
 extern uint32_t g_window_w;
 extern uint32_t g_window_h;
-} // namespace Pupil
+}// namespace Pupil
 
-namespace
-{
+namespace {
 double m_time_cnt = 1.f;
 }
 
-namespace Pupil::ddgi::probe
-{
-ProbePass::ProbePass(std::string_view name) noexcept : Pass(name)
-{
+namespace Pupil::ddgi::probe {
+ProbePass::ProbePass(std::string_view name) noexcept : Pass(name) {
     auto optix_ctx = util::Singleton<optix::Context>::instance();
     auto cuda_ctx = util::Singleton<cuda::Context>::instance();
     m_stream = std::make_unique<cuda::Stream>();
@@ -37,8 +33,7 @@ ProbePass::ProbePass(std::string_view name) noexcept : Pass(name)
     BindingEventCallback();
 }
 
-float3 sphericalFibonacci(float i, float n)
-{
+float3 sphericalFibonacci(float i, float n) {
     const float PHI = std::sqrt(5) * 0.5f + 0.5f;
 
     float madfrac = (i * (PHI - 1)) - std::floor(i * (PHI - 1));
@@ -50,8 +45,7 @@ float3 sphericalFibonacci(float i, float n)
     return make_float3(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
 }
 
-util::Mat3 fromAxisAngle(const float3 axis, float fRadians)
-{
+util::Mat3 fromAxisAngle(const float3 axis, float fRadians) {
 
     util::Mat3 m;
     float fCos = cos(fRadians);
@@ -82,8 +76,7 @@ util::Mat3 fromAxisAngle(const float3 axis, float fRadians)
     return m;
 }
 
-void ProbePass::BeforeRunning() noexcept
-{
+void ProbePass::BeforeRunning() noexcept {
 
     // random orientation
     const float3 axis =
@@ -95,16 +88,13 @@ void ProbePass::BeforeRunning() noexcept
     m_optix_launch_params.randomOrientation.SetData(m_randomoriention_cuda_memory);
 }
 
-void ProbePass::Run() noexcept
-{
+void ProbePass::Run() noexcept {
     m_timer.Start();
     {
+        if (m_dirty) {
+            m_dirty = false;
+        }
 
-        // if (m_firstframe)
-        // {
-        //     Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(raygbuffersize);
-        //     m_firstframe = false;
-        // }
         m_optix_launch_params.rayhitnormal.SetData(m_rayhitnormal->cuda_res.ptr,
                                                    m_raygbuffersize.w * m_raygbuffersize.h);
         m_optix_launch_params.raydirection.SetData(m_raydirection->cuda_res.ptr,
@@ -115,8 +105,7 @@ void ProbePass::Run() noexcept
         // auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
         // m_optix_launch_params.rayradiance.SetData(frame_buffer.cuda_ptr, raygbuffersize.w * raygbuffersize.h);
         auto buf_mngr = util::Singleton<BufferManager>::instance();
-        if (m_frame_cnt != 0)
-        {
+        if (m_frame_cnt != 0) {
             auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
             m_optix_launch_params.probeirradiance.SetData(probeirradiancebuffer->cuda_res.ptr,
                                                           m_probeirradiancesize.w * m_probeirradiancesize.h);
@@ -124,21 +113,19 @@ void ProbePass::Run() noexcept
             auto probedepthbuffer = buf_mngr->GetBuffer("ddgi_probedepth");
             m_optix_launch_params.probedepth.SetData(probedepthbuffer->cuda_res.ptr,
                                                      m_probeirradiancesize.w * m_probeirradiancesize.h);
-        }
-        else
-        {
+        } else {
             std::vector<float4> probezerovector;
             probezerovector.resize(m_probeirradiancesize.w * m_probeirradiancesize.h);
             probezerovector.assign(probezerovector.size(), make_float4(0, 0, 0, 0));
 
             CUDA_FREE(m_zeroradiance_cuda_memory);
             m_zeroradiance_cuda_memory =
-                cuda::CudaMemcpyToDevice(probezerovector.data(), probezerovector.size() * sizeof(float3));
+                cuda::CudaMemcpyToDevice(probezerovector.data(), probezerovector.size() * sizeof(float4));
             m_optix_launch_params.probeirradiance.SetData(m_zeroradiance_cuda_memory, probezerovector.size());
 
             CUDA_FREE(m_zerodepth_cuda_memory);
             m_zerodepth_cuda_memory =
-                cuda::CudaMemcpyToDevice(probezerovector.data(), probezerovector.size() * sizeof(float3));
+                cuda::CudaMemcpyToDevice(probezerovector.data(), probezerovector.size() * sizeof(float4));
             m_optix_launch_params.probedepth.SetData(m_zerodepth_cuda_memory, probezerovector.size());
         }
 
@@ -147,6 +134,7 @@ void ProbePass::Run() noexcept
         m_optix_pass->Synchronize();
 
         ++m_optix_launch_params.random_seed;
+
         // {
         //     std::string temp = "D:/Code/PupilOptixLab/probehitradiance" + std::to_string(m_frame_cnt) + ".hdr";
         //     std::filesystem::path path1{temp};
@@ -161,12 +149,6 @@ void ProbePass::Run() noexcept
         //     delete[] image1;
 
         //     Pupil::Log::Info("image was saved successfully in [{}].\n", path1.string());
-        // }
-
-        // if (m_firstframe)
-        // {
-        //     Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
-        //     m_firstframe = false;
         // }
 
         // 积分
@@ -223,7 +205,8 @@ void ProbePass::Run() noexcept
 
         // Copy Border
         cuda::RWArrayView<float4> probeirradiance;
-        probeirradiance.SetData(probeirradiancebuffer->cuda_res.ptr, m_probeirradiancesize.h * m_probeirradiancesize.w);
+        probeirradiance.SetData(probeirradiancebuffer->cuda_res.ptr, m_probeirradiancesize.h *
+                                                                         m_probeirradiancesize.w);
         CopyBorderCPU(m_stream->GetStream(), probeirradiance,
                       make_uint2(m_probeirradiancesize.w, m_probeirradiancesize.h), m_probesidelength);
         m_stream->Synchronize();
@@ -251,15 +234,11 @@ void ProbePass::Run() noexcept
         // }
 
         auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
-        if (m_show_type == 0)
-        {
+        if (m_show_type == 0) {
             // pt
-        }
-        else if (m_show_type == 1)
-        { // probeirradiance
+        } else if (m_show_type == 1) {// probeirradiance
 
-            if (show_type_changed)
-            {
+            if (show_type_changed) {
                 Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(m_probeirradiancesize);
                 show_type_changed = false;
             }
@@ -278,11 +257,8 @@ void ProbePass::Run() noexcept
             //                 m_probeirradiancesize.w * m_probeirradiancesize.h * sizeof(float4),
             //                 cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream());
             // cudaStreamSynchronize(m_stream->GetStream());
-        }
-        else if (m_show_type == 2)
-        { // rayGbuffer
-            if (show_type_changed)
-            {
+        } else if (m_show_type == 2) {// rayGbuffer
+            if (show_type_changed) {
                 Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(m_raygbuffersize);
                 show_type_changed = false;
             }
@@ -293,11 +269,8 @@ void ProbePass::Run() noexcept
                             m_raygbuffersize.w * m_raygbuffersize.h * sizeof(float4),
                             cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream());
             cudaStreamSynchronize(m_stream->GetStream());
-        }
-        else if (m_show_type == 3)
-        { // probedepth
-            if (show_type_changed)
-            {
+        } else if (m_show_type == 3) {// probedepth
+            if (show_type_changed) {
                 Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(m_probeirradiancesize);
                 show_type_changed = false;
             }
@@ -320,17 +293,16 @@ void ProbePass::Run() noexcept
             // cudaStreamSynchronize(m_stream->GetStream());
         }
         m_frame_cnt++;
+        printf("framecount:%d\n", m_frame_cnt);
     }
     m_timer.Stop();
     m_time_cnt = m_timer.ElapsedMilliseconds();
 }
 
-void ProbePass::AfterRunning() noexcept
-{
+void ProbePass::AfterRunning() noexcept {
 }
 
-void ProbePass::InitOptixPipeline() noexcept
-{
+void ProbePass::InitOptixPipeline() noexcept {
     auto module_mngr = util::Singleton<optix::ModuleManager>::instance();
 
     auto sphere_module = module_mngr->GetModule(OPTIX_PRIMITIVE_TYPE_SPHERE);
@@ -339,29 +311,29 @@ void ProbePass::InitOptixPipeline() noexcept
     optix::PipelineDesc pipeline_desc;
     {
         // for mesh(triangle) geo
-        optix::ProgramDesc desc{.module_ptr = pt_module,
-                                .ray_gen_entry = "__raygen__main",
-                                .hit_miss = "__miss__default",
-                                .shadow_miss = "__miss__shadow",
-                                .hit_group = {.ch_entry = "__closesthit__default"},
-                                .shadow_grop = {.ch_entry = "__closesthit__shadow"}};
+        optix::ProgramDesc desc{ .module_ptr = pt_module,
+                                 .ray_gen_entry = "__raygen__main",
+                                 .hit_miss = "__miss__default",
+                                 .shadow_miss = "__miss__shadow",
+                                 .hit_group = { .ch_entry = "__closesthit__default" },
+                                 .shadow_grop = { .ch_entry = "__closesthit__shadow" } };
         pipeline_desc.programs.push_back(desc);
     }
 
     {
         // for sphere geo
-        optix::ProgramDesc desc{.module_ptr = pt_module,
-                                .hit_group = {.ch_entry = "__closesthit__default", .intersect_module = sphere_module},
-                                .shadow_grop = {.ch_entry = "__closesthit__shadow", .intersect_module = sphere_module}};
+        optix::ProgramDesc desc{ .module_ptr = pt_module,
+                                 .hit_group = { .ch_entry = "__closesthit__default", .intersect_module = sphere_module },
+                                 .shadow_grop = { .ch_entry = "__closesthit__shadow", .intersect_module = sphere_module } };
         pipeline_desc.programs.push_back(desc);
     }
     m_optix_pass->InitPipeline(pipeline_desc);
 }
 
-void ProbePass::SetScene(World *world) noexcept
-{
+void ProbePass::SetScene(World *world) noexcept {
 
     // m_world_camera = world->optix_scene->camera.get();
+    m_frame_cnt = 0;
 
     m_optix_launch_params.config.frame.width = m_irradiancerays_perprobe;
     m_optix_launch_params.config.frame.height = std::pow(m_probecountperside, 3);
@@ -378,42 +350,48 @@ void ProbePass::SetScene(World *world) noexcept
     BufferDesc rayradiance_buf_desc = {
         .type = EBufferType::Cuda,
         .name = "ddgi_rayradiance",
-        .size = static_cast<uint64_t>(m_irradiancerays_perprobe * std::pow(m_probecountperside, 3) * sizeof(float4))};
+        .size = static_cast<uint64_t>(m_irradiancerays_perprobe * std::pow(m_probecountperside, 3) * sizeof(float4))
+    };
 
     m_rayradiance = buf_mngr->AllocBuffer(rayradiance_buf_desc);
 
     BufferDesc rayhitposition_buf_desc = {
         .type = EBufferType::Cuda,
         .name = "ddgi_rayhitposition",
-        .size = static_cast<uint64_t>(m_irradiancerays_perprobe * std::pow(m_probecountperside, 3) * sizeof(float3))};
+        .size = static_cast<uint64_t>(m_irradiancerays_perprobe * std::pow(m_probecountperside, 3) * sizeof(float3))
+    };
 
     m_rayhitposition = buf_mngr->AllocBuffer(rayhitposition_buf_desc);
 
     BufferDesc raydirection_buf_desc = {
         .type = EBufferType::Cuda,
         .name = "ddgi_raydirection",
-        .size = static_cast<uint64_t>(m_irradiancerays_perprobe * std::pow(m_probecountperside, 3) * sizeof(float3))};
+        .size = static_cast<uint64_t>(m_irradiancerays_perprobe * std::pow(m_probecountperside, 3) * sizeof(float3))
+    };
 
     m_raydirection = buf_mngr->AllocBuffer(raydirection_buf_desc);
 
     BufferDesc rayhitnormal_buf_desc = {
         .type = EBufferType::Cuda,
         .name = "ddgi_rayhitnormal",
-        .size = static_cast<uint64_t>(m_irradiancerays_perprobe * std::pow(m_probecountperside, 3) * sizeof(float3))};
+        .size = static_cast<uint64_t>(m_irradiancerays_perprobe * std::pow(m_probecountperside, 3) * sizeof(float3))
+    };
 
     m_rayhitnormal = buf_mngr->AllocBuffer(rayhitnormal_buf_desc);
 
     BufferDesc probeirradiance_buf_desc = {
         .type = EBufferType::Cuda,
         .name = "ddgi_probeirradiance",
-        .size = static_cast<uint64_t>(m_probeirradiancesize.w * m_probeirradiancesize.h * sizeof(float4))};
+        .size = static_cast<uint64_t>(m_probeirradiancesize.w * m_probeirradiancesize.h * sizeof(float4))
+    };
 
     m_probeirradiance = buf_mngr->AllocBuffer(probeirradiance_buf_desc);
 
     BufferDesc probedepth_buf_desc = {
         .type = EBufferType::Cuda,
         .name = "ddgi_probedepth",
-        .size = static_cast<uint64_t>(m_probeirradiancesize.w * m_probeirradiancesize.h * sizeof(float4))};
+        .size = static_cast<uint64_t>(m_probeirradiancesize.w * m_probeirradiancesize.h * sizeof(float4))
+    };
 
     m_probedepth = buf_mngr->AllocBuffer(probedepth_buf_desc);
     // m_update_params.probeirradiance.SetData(m_probeirradiance->cuda_res.ptr,
@@ -433,12 +411,9 @@ void ProbePass::SetScene(World *world) noexcept
     m_probestep =
         make_float3((max.x - min.x) / float(m_probecountperside - 1), (max.y - min.y) / float(m_probecountperside - 1),
                     (max.z - min.z) / float(m_probecountperside - 1));
-    for (int i = 0; i < m_probecountperside; i++)
-    {
-        for (int j = 0; j < m_probecountperside; j++)
-        {
-            for (int k = 0; k < m_probecountperside; k++)
-            {
+    for (int i = 0; i < m_probecountperside; i++) {
+        for (int j = 0; j < m_probecountperside; j++) {
+            for (int k = 0; k < m_probecountperside; k++) {
                 m_probepos.push_back(min + make_float3(k * m_probestep.x, j * m_probestep.y, i * m_probestep.z));
             }
         }
@@ -456,7 +431,7 @@ void ProbePass::SetScene(World *world) noexcept
     m_optix_launch_params.raydirection.SetData(0, 0);
     m_optix_launch_params.rayhitnormal.SetData(0, 0);
     m_update_params.probeirradiance.SetData(0, 0);
-    // m_update_params.probedepth.SetData(0, 0);
+    m_update_params.probedepth.SetData(0, 0);
 
     m_optix_launch_params.handle = world->optix_scene->ias_handle;
     m_optix_launch_params.emitters = world->optix_scene->emitters->GetEmitterGroup();
@@ -466,21 +441,18 @@ void ProbePass::SetScene(World *world) noexcept
     m_dirty = true;
 }
 
-void ProbePass::SetSBT(scene::Scene *scene) noexcept
-{
+void ProbePass::SetSBT(scene::Scene *scene) noexcept {
     optix::SBTDesc<SBTTypes> desc{};
-    desc.ray_gen_data = {.program_name = "__raygen__main", .data = SBTTypes::RayGenDataType{}};
+    desc.ray_gen_data = { .program_name = "__raygen__main", .data = SBTTypes::RayGenDataType{} };
     {
         int emitter_index_offset = 0;
         using HitGroupDataRecord = decltype(desc)::Pair<SBTTypes::HitGroupDataType>;
-        for (auto &&shape : scene->shapes)
-        {
+        for (auto &&shape : scene->shapes) {
             HitGroupDataRecord hit_default_data{};
             hit_default_data.program_name = "__closesthit__default";
             hit_default_data.data.mat.LoadMaterial(shape.mat);
             hit_default_data.data.geo.LoadGeometry(shape);
-            if (shape.is_emitter)
-            {
+            if (shape.is_emitter) {
                 hit_default_data.data.emitter_index_offset = emitter_index_offset;
                 emitter_index_offset += shape.sub_emitters_num;
             }
@@ -493,30 +465,36 @@ void ProbePass::SetSBT(scene::Scene *scene) noexcept
         }
     }
     {
-        decltype(desc)::Pair<SBTTypes::MissDataType> miss_data = {.program_name = "__miss__default",
-                                                                  .data = SBTTypes::MissDataType{}};
+        decltype(desc)::Pair<SBTTypes::MissDataType> miss_data = { .program_name = "__miss__default",
+                                                                   .data = SBTTypes::MissDataType{} };
         desc.miss_datas.push_back(miss_data);
-        decltype(desc)::Pair<SBTTypes::MissDataType> miss_shadow_data = {.program_name = "__miss__shadow",
-                                                                         .data = SBTTypes::MissDataType{}};
+        decltype(desc)::Pair<SBTTypes::MissDataType> miss_shadow_data = { .program_name = "__miss__shadow",
+                                                                          .data = SBTTypes::MissDataType{} };
         desc.miss_datas.push_back(miss_shadow_data);
     }
     m_optix_pass->InitSBT(desc);
 }
 
-void ProbePass::BindingEventCallback() noexcept
-{
+void ProbePass::BindingEventCallback() noexcept {
     EventBinder<EWorldEvent::CameraChange>([this](void *) { m_dirty = true; });
 
     EventBinder<ESystemEvent::SceneLoad>([this](void *p) { SetScene((World *)p); });
 }
 
-void ProbePass::Inspector() noexcept
-{
+void ProbePass::Inspector() noexcept {
     // constexpr auto show_type = std::array{"render result", "albedo", "normal"};
     // constexpr auto show_type = std::array{"render result", "probeirradiance", "rayGbuffer"};
     // ImGui::Combo("result", &m_show_type, show_type.data(), (int)show_type.size());
 
     ImGui::Text("Rendering average %.3lf ms/frame (%.1lf FPS)", m_time_cnt, 1000.0f / m_time_cnt);
     ImGui::Text("FrameCount %d", m_frame_cnt);
+
+    // ImGui::InputInt("probecountperside", &m_probecountperside);
+    // if (m_probecountperside < 2)
+    //     m_probecountperside = 2;
+    // if (m_optix_launch_params.probeCount.x != m_probecountperside)
+    // {
+    //     m_dirty = true;
+    // }
 }
-} // namespace Pupil::ddgi::probe
+}// namespace Pupil::ddgi::probe

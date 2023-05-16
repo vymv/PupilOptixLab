@@ -5,11 +5,9 @@
 #include "optix/scene/camera.h"
 #include "optix/scene/emitter.h"
 
-namespace Pupil::ddgi::probe
-{
+namespace Pupil::ddgi::probe {
 
-struct OptixLaunchParams
-{
+struct OptixLaunchParams {
     struct
     {
         struct
@@ -42,17 +40,14 @@ struct OptixLaunchParams
     cuda::ConstArrayView<float4> probedepth;
 };
 
-struct RayGenData
-{
+struct RayGenData {
 };
-struct MissData
-{
+struct MissData {
 };
-struct HitGroupData
-{
+struct HitGroupData {
     optix::material::Material mat;
     optix::Geometry geo;
     int emitter_index_offset = -1;
 };
 
-} // namespace Pupil::ddgi::probe
+}// namespace Pupil::ddgi::probe

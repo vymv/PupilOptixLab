@@ -12,25 +12,21 @@
 // 代码指令由char类型保存，只需要声明extern即可获取
 extern "C" char ddgi_render_pass_embedded_ptx_code[];
 
-namespace Pupil
-{
+namespace Pupil {
 extern uint32_t g_window_w;
 extern uint32_t g_window_h;
-} // namespace Pupil
+}// namespace Pupil
 
-namespace
-{
+namespace {
 int m_max_depth;
 int m_spp = 1;
 double m_time_cnt = 1.;
 
 int m_show_type = 0;
-} // namespace
+}// namespace
 
-namespace Pupil::ddgi::render
-{
-RenderPass::RenderPass(std::string_view name) noexcept : Pass(name)
-{
+namespace Pupil::ddgi::render {
+RenderPass::RenderPass(std::string_view name) noexcept : Pass(name) {
     auto optix_ctx = util::Singleton<optix::Context>::instance();
     auto cuda_ctx = util::Singleton<cuda::Context>::instance();
     m_stream = std::make_unique<cuda::Stream>();
@@ -40,13 +36,11 @@ RenderPass::RenderPass(std::string_view name) noexcept : Pass(name)
     BindingEventCallback();
 }
 
-void RenderPass::Run() noexcept
-{
+void RenderPass::Run() noexcept {
     m_timer.Start();
     {
         // 由于ui线程和渲染线程分离，所以在渲染前先检查是否通过ui修改了渲染参数
-        if (m_dirty)
-        {
+        if (m_dirty) {
             m_optix_launch_params.camera.SetData(m_world_camera->GetCudaMemory());
             m_optix_launch_params.config.max_depth = m_max_depth;
             m_optix_launch_params.random_seed = 0;
@@ -68,17 +62,18 @@ void RenderPass::Run() noexcept
         m_optix_launch_params.probedepth.SetData(probedepthbuffer->cuda_res.ptr,
                                                  m_probeirradiancesize.w * m_probeirradiancesize.h);
 
-        if (m_show_type == 0)
-        { // pt
+        m_optix_launch_params.glossyradiance.SetData(m_glossy->cuda_res.ptr, m_output_pixel_num);
+
+         if (m_show_type == 0) {// pt
             // frame_buffer写入的内容将会被展示到gui上
             // resize
-            if (show_type_changed)
-            {
+            if (show_type_changed) {
+                m_optix_launch_params.directOnly = false;
                 struct
                 {
                     uint32_t w, h;
-                } size{static_cast<uint32_t>(m_optix_launch_params.config.frame.width),
-                       static_cast<uint32_t>(m_optix_launch_params.config.frame.height)};
+                } size{ static_cast<uint32_t>(m_optix_launch_params.config.frame.width),
+                        static_cast<uint32_t>(m_optix_launch_params.config.frame.height) };
                 Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
                 show_type_changed = false;
             }
@@ -86,35 +81,70 @@ void RenderPass::Run() noexcept
             m_optix_launch_params.frame_buffer.SetData(frame_buffer.cuda_ptr, m_output_pixel_num);
             m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
                               m_optix_launch_params.config.frame.height);
-            m_optix_pass->Synchronize(); // 等待optix渲染结束
+            m_optix_pass->Synchronize();// 等待optix渲染结束
+
+            ++m_optix_launch_params.random_seed;
+        } else if (m_show_type == 4) {
+            if (show_type_changed) {
+                m_optix_launch_params.directOnly = true;
+                struct
+                {
+                    uint32_t w, h;
+                } size{ static_cast<uint32_t>(m_optix_launch_params.config.frame.width),
+                        static_cast<uint32_t>(m_optix_launch_params.config.frame.height) };
+                Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
+                show_type_changed = false;
+            }
+
+            m_optix_launch_params.frame_buffer.SetData(frame_buffer.cuda_ptr, m_output_pixel_num);
+            m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
+                              m_optix_launch_params.config.frame.height);
+            m_optix_pass->Synchronize();// 等待optix渲染结束
+
+            ++m_optix_launch_params.random_seed;
+        } else if (m_show_type == 5) {
+            if (show_type_changed) {
+                struct
+                {
+                    uint32_t w, h;
+                } size{ static_cast<uint32_t>(m_optix_launch_params.config.frame.width),
+                        static_cast<uint32_t>(m_optix_launch_params.config.frame.height) };
+                Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
+                show_type_changed = false;
+            }
+
+            m_optix_launch_params.glossyradiance.SetData(frame_buffer.cuda_ptr, m_output_pixel_num);
+            m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
+                              m_optix_launch_params.config.frame.height);
+            m_optix_pass->Synchronize();// 等待optix渲染结束
 
             ++m_optix_launch_params.random_seed;
         }
-        // else if (m_show_type == 1)
-        // { // probeirradiance
-        //     auto buf_mngr = util::Singleton<BufferManager>::instance();
-        //     auto albedo = buf_mngr->GetBuffer("ddgi_probeirradiance");
-        //     cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)albedo->cuda_res.ptr,
-        //                     m_output_pixel_num * sizeof(float4), cudaMemcpyKind::cudaMemcpyDeviceToDevice,
-        //                     m_stream->GetStream());
-        //     cudaStreamSynchronize(m_stream->GetStream());
-        // }
-        // else if (m_show_type == 2)
-        // { // rayGbuffer
-        //     auto buf_mngr = util::Singleton<BufferManager>::instance();
-        //     auto normal = buf_mngr->GetBuffer("ddgi_rayradiance");
-        //     cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)normal->cuda_res.ptr,
-        //                     m_output_pixel_num * sizeof(float4), cudaMemcpyKind::cudaMemcpyDeviceToDevice,
-        //                     m_stream->GetStream());
-        //     cudaStreamSynchronize(m_stream->GetStream());
-        // }
     }
+
+    // { // probeirradiance
+    //     auto buf_mngr = util::Singleton<BufferManager>::instance();
+    //     auto albedo = buf_mngr->GetBuffer("ddgi_probeirradiance");
+    //     cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)albedo->cuda_res.ptr,
+    //                     m_output_pixel_num * sizeof(float4), cudaMemcpyKind::cudaMemcpyDeviceToDevice,
+    //                     m_stream->GetStream());
+    //     cudaStreamSynchronize(m_stream->GetStream());
+    // }
+    // else if (m_show_type == 2)
+    // { // rayGbuffer
+    //     auto buf_mngr = util::Singleton<BufferManager>::instance();
+    //     auto normal = buf_mngr->GetBuffer("ddgi_rayradiance");
+    //     cudaMemcpyAsync((void *)frame_buffer.cuda_ptr, (void *)normal->cuda_res.ptr,
+    //                     m_output_pixel_num * sizeof(float4), cudaMemcpyKind::cudaMemcpyDeviceToDevice,
+    //                     m_stream->GetStream());
+    //     cudaStreamSynchronize(m_stream->GetStream());
+    // }
+
     m_timer.Stop();
     m_time_cnt = m_timer.ElapsedMilliseconds();
 }
 
-void RenderPass::InitOptixPipeline() noexcept
-{
+void RenderPass::InitOptixPipeline() noexcept {
     auto module_mngr = util::Singleton<optix::ModuleManager>::instance();
 
     auto sphere_module = module_mngr->GetModule(OPTIX_PRIMITIVE_TYPE_SPHERE);
@@ -131,41 +161,47 @@ void RenderPass::InitOptixPipeline() noexcept
     optix::PipelineDesc pipeline_desc;
     {
         // for mesh(triangle) geo
-        optix::ProgramDesc desc{.module_ptr = render_module,
-                                .ray_gen_entry = "__raygen__main",
-                                .hit_miss = "__miss__default",
-                                .shadow_miss = "__miss__shadow",
-                                .hit_group = {.ch_entry = "__closesthit__default"},
-                                .shadow_grop = {.ch_entry = "__closesthit__shadow"}};
+        optix::ProgramDesc desc{ .module_ptr = render_module,
+                                 .ray_gen_entry = "__raygen__main",
+                                 .hit_miss = "__miss__default",
+                                 .shadow_miss = "__miss__shadow",
+                                 .hit_group = { .ch_entry = "__closesthit__default" },
+                                 .shadow_grop = { .ch_entry = "__closesthit__shadow" } };
         pipeline_desc.programs.push_back(desc);
     }
     // mesh的求交使用built-in的三角形求交模块（默认）
     // 球的求交使用built-in的球求交模块(这里使用module_mngr->GetModule(OPTIX_PRIMITIVE_TYPE_SPHERE)生成)
     {
         // for sphere geo
-        optix::ProgramDesc desc{.module_ptr = render_module,
-                                .hit_group = {.ch_entry = "__closesthit__default", .intersect_module = sphere_module},
-                                .shadow_grop = {.ch_entry = "__closesthit__shadow", .intersect_module = sphere_module}};
+        optix::ProgramDesc desc{ .module_ptr = render_module,
+                                 .hit_group = { .ch_entry = "__closesthit__default", .intersect_module = sphere_module },
+                                 .shadow_grop = { .ch_entry = "__closesthit__shadow", .intersect_module = sphere_module } };
         pipeline_desc.programs.push_back(desc);
     }
     m_optix_pass->InitPipeline(pipeline_desc);
 }
 
-void RenderPass::SetScene(World *world) noexcept
-{
+void RenderPass::SetScene(World *world) noexcept {
     // 对于场景初始化参数
     m_world_camera = world->camera.get();
     m_optix_launch_params.config.frame.width = world->scene->sensor.film.w;
     m_optix_launch_params.config.frame.height = world->scene->sensor.film.h;
     m_optix_launch_params.config.max_depth = world->scene->integrator.max_depth;
+    m_output_pixel_num = m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height;
+
+    auto buf_mngr = util::Singleton<BufferManager>::instance();
+    BufferDesc glossy_buf_desc = {
+        .type = EBufferType::Cuda,
+        .name = "ddgi_glossyradiance",
+        .size = static_cast<uint64_t>(m_output_pixel_num * sizeof(float4))
+    };
+    m_glossy = buf_mngr->AllocBuffer(glossy_buf_desc);
 
     m_max_depth = m_optix_launch_params.config.max_depth;
     m_spp = 1;
 
     m_optix_launch_params.random_seed = 0;
     m_optix_launch_params.spp = m_spp;
-
-    m_output_pixel_num = m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height;
 
     m_optix_launch_params.frame_buffer.SetData(0, 0);
     m_optix_launch_params.handle = world->optix_scene->ias_handle;
@@ -176,29 +212,27 @@ void RenderPass::SetScene(World *world) noexcept
     m_optix_launch_params.probeCount = make_int3(m_probecountperside, m_probecountperside, m_probecountperside);
     m_optix_launch_params.probeirradiancesize = make_uint2(m_probeirradiancesize.w, m_probeirradiancesize.h);
     m_optix_launch_params.probeSideLength = m_probesidelength;
-    // m_optix_launch_params.probeirradiance.SetData(0, 0);
+    m_optix_launch_params.directOnly = false;
+    m_optix_launch_params.probeirradiance.SetData(0, 0);
 
     SetSBT(world->scene.get());
 
     m_dirty = true;
 }
 
-void RenderPass::SetSBT(scene::Scene *scene) noexcept
-{
+void RenderPass::SetSBT(scene::Scene *scene) noexcept {
     // 将场景数据绑定到sbt中
     optix::SBTDesc<SBTTypes> desc{};
-    desc.ray_gen_data = {.program_name = "__raygen__main", .data = SBTTypes::RayGenDataType{}};
+    desc.ray_gen_data = { .program_name = "__raygen__main", .data = SBTTypes::RayGenDataType{} };
     {
         int emitter_index_offset = 0;
         using HitGroupDataRecord = decltype(desc)::Pair<SBTTypes::HitGroupDataType>;
-        for (auto &&shape : scene->shapes)
-        {
+        for (auto &&shape : scene->shapes) {
             HitGroupDataRecord hit_default_data{};
             hit_default_data.program_name = "__closesthit__default";
             hit_default_data.data.mat.LoadMaterial(shape.mat);
             hit_default_data.data.geo.LoadGeometry(shape);
-            if (shape.is_emitter)
-            {
+            if (shape.is_emitter) {
                 hit_default_data.data.emitter_index_offset = emitter_index_offset;
                 emitter_index_offset += shape.sub_emitters_num;
             }
@@ -212,18 +246,17 @@ void RenderPass::SetSBT(scene::Scene *scene) noexcept
         }
     }
     {
-        decltype(desc)::Pair<SBTTypes::MissDataType> miss_data = {.program_name = "__miss__default",
-                                                                  .data = SBTTypes::MissDataType{}};
+        decltype(desc)::Pair<SBTTypes::MissDataType> miss_data = { .program_name = "__miss__default",
+                                                                   .data = SBTTypes::MissDataType{} };
         desc.miss_datas.push_back(miss_data);
-        decltype(desc)::Pair<SBTTypes::MissDataType> miss_shadow_data = {.program_name = "__miss__shadow",
-                                                                         .data = SBTTypes::MissDataType{}};
+        decltype(desc)::Pair<SBTTypes::MissDataType> miss_shadow_data = { .program_name = "__miss__shadow",
+                                                                          .data = SBTTypes::MissDataType{} };
         desc.miss_datas.push_back(miss_shadow_data);
     }
     m_optix_pass->InitSBT(desc);
 }
 
-void RenderPass::BindingEventCallback() noexcept
-{
+void RenderPass::BindingEventCallback() noexcept {
     // 相机参数改变后，需要在渲染前将改变后的参数传入optix的pipeline中，
     // 由于是多线程异步实现的，需要m_dirty原子操作标记一下
     EventBinder<EWorldEvent::CameraChange>([this](void *) { m_dirty = true; });
@@ -232,10 +265,10 @@ void RenderPass::BindingEventCallback() noexcept
     EventBinder<ESystemEvent::SceneLoad>([this](void *p) { SetScene((World *)p); });
 }
 
-void RenderPass::Inspector() noexcept
-{
+void RenderPass::Inspector() noexcept {
     // constexpr auto show_type = std::array{"render result", "albedo", "normal"};
-    constexpr auto show_type = std::array{"render result", "probeirradiance", "rayGbuffer", "probedepth"};
+    constexpr auto show_type =
+        std::array{ "render result", "probeirradiance", "rayGbuffer", "probedepth", "direct light", "reflected point color" };
 
     if (ImGui::Combo("result", &m_show_type, show_type.data(), (int)show_type.size()))
         show_type_changed = true;
@@ -243,16 +276,14 @@ void RenderPass::Inspector() noexcept
     ImGui::InputInt("spp", &m_spp);
     if (m_spp < 1)
         m_spp = 1;
-    if (m_optix_launch_params.spp != m_spp)
-    {
+    if (m_optix_launch_params.spp != m_spp) {
         m_dirty = true;
     }
     ImGui::InputInt("max trace depth", &m_max_depth);
     m_max_depth = clamp(m_max_depth, 1, 128);
-    if (m_optix_launch_params.config.max_depth != m_max_depth)
-    {
+    if (m_optix_launch_params.config.max_depth != m_max_depth) {
         m_dirty = true;
     }
     ImGui::Text("Rendering average %.3lf ms/frame (%.1lf FPS)", m_time_cnt, 1000.0f / m_time_cnt);
 }
-} // namespace Pupil::ddgi::render
+}// namespace Pupil::ddgi::render

@@ -6,26 +6,22 @@
 #include <stdio.h>
 
 // uniform
-__device__ int3 getBaseGridCoord(float3 probeStartPosition, float3 probeStep, int3 probeCount, float3 X)
-{
+__device__ int3 getBaseGridCoord(float3 probeStartPosition, float3 probeStep, int3 probeCount, float3 X) {
     return clamp(make_int3((X - probeStartPosition) / probeStep), make_int3(0, 0, 0), probeCount - make_int3(1));
 }
 
 // uniform
-__device__ int gridCoordToProbeIndex(int3 probeCount, int3 probeCoords)
-{
+__device__ int gridCoordToProbeIndex(int3 probeCount, int3 probeCoords) {
     return int(probeCoords.x + probeCoords.y * probeCount.x + probeCoords.z * probeCount.x * probeCount.y);
 }
 
 // uniform
-__device__ float3 gridCoordToPosition(float3 probeStartPosition, float3 probeStep, int3 c)
-{
+__device__ float3 gridCoordToPosition(float3 probeStartPosition, float3 probeStep, int3 c) {
     return probeStep * make_float3(c) + probeStartPosition;
 }
 
 __device__ int2 textureCoordFromDirection(float3 dir, int probeIndex, int fullTextureWidth, int fullTextureHeight,
-                                          int probeSideLength)
-{
+                                          int probeSideLength) {
     float2 normalizedOctCoord = octEncode(normalize(dir));
     float2 normalizedOctCoordZeroOne = (normalizedOctCoord + make_float2(1.0f)) * 0.5f;
 
@@ -47,8 +43,7 @@ __device__ int2 textureCoordFromDirection(float3 dir, int probeIndex, int fullTe
 __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, const float3 rayorigin,
                                   const float4 *probeirradiance, const float4 *probedepth, float3 probeStartPosition,
                                   float3 probeStep, int3 probeCount, uint2 probeirradiancesize, int probeSideLength,
-                                  float energyConservation)
-{
+                                  float energyConservation) {
 
     const float epsilon = 1e-6;
     // gbuffer_WS_NORMAL_buffer
@@ -56,8 +51,7 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
     // gbuffer_WS_RAY_ORIGIN_buffer
     // probe irradiance buffer
 
-    if (dot(wsN, wsN) < 0.01)
-    {
+    if (dot(wsN, wsN) < 0.01) {
         return make_float3(0.0f);
     }
 
@@ -70,8 +64,7 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
     //  alpha is how far from the floor(currentVertex) position. on [0, 1] for each axis.
     float3 alpha = clamp((wsPosition - baseProbePos) / probeStep, make_float3(0), make_float3(1));
 
-    for (int i = 0; i < 8; ++i)
-    {
+    for (int i = 0; i < 1; ++i) {
         float weight = 1.0;
         int3 offset = make_int3(i & 1, (i >> 1) & 1, (i >> 2) & 1);
         int3 probeGridCoord = clamp(baseGridCoord + offset, make_int3(0), probeCount - make_int3(1));
@@ -108,8 +101,7 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
         weight = max(0.000001, weight);
 
         const float crushThreshold = 0.2;
-        if (weight < crushThreshold)
-        {
+        if (weight < crushThreshold) {
             weight *= weight * weight * (1.0 / pow(crushThreshold, 2));
         }
 
@@ -121,6 +113,8 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
                                                   probeirradiancesize.y, probeSideLength);
         float4 irradiance = probeirradiance[texCoord.x + texCoord.y * probeirradiancesize.x];
 
+        // weight = max(0.000001, weight);
+        //printf("irradiance:%f,%f,%f\n", irradiance.x, irradiance.y, irradiance.z);
         sumIrradiance += weight * make_float3(irradiance.x, irradiance.y, irradiance.z);
         sumWeight += weight;
     }
@@ -128,8 +122,9 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
     float3 netIrradiance = sumIrradiance / sumWeight;
     netIrradiance *= energyConservation;
     float3 indirect = 2.0 * M_PIf * netIrradiance;
-    // indirect = make_float3(0.5f);
-    // printf("%f,%f,%f", indirect.x, indirect.y, indirect.z);
-    //     return indirect;
+    //printf("indirect:%f,%f,%f\n", indirect.x, indirect.y, indirect.z);
+    // if (isnan(indirect.x))
+    //printf("%f,%f,%f,weights:%f\n", sumIrradiance.x, sumIrradiance.y, sumIrradiance.z, sumWeight);
+    //return sumIrradiance;
     return indirect;
 }

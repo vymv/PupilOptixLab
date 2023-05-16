@@ -5,8 +5,7 @@
 #include "static.h"
 #include "system/system.h"
 
-int main()
-{
+int main() {
     auto system = Pupil::util::Singleton<Pupil::System>::instance();
     system->Init(true);
 
@@ -24,9 +23,10 @@ int main()
         auto render_pass = std::make_unique<Pupil::ddgi::render::RenderPass>();
         system->AddPass(render_pass.get());
 
-        std::filesystem::path scene_file_path{Pupil::DATA_DIR};
+        std::filesystem::path scene_file_path{ Pupil::DATA_DIR };
         scene_file_path /= "cornellbox.xml";
-        // scene_file_path /= "mis.xml";
+        // std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/living-room-white/scene_v3.xml";
+        // std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/bathroom/scene_v3.xml";
         system->SetScene(scene_file_path);
 
         system->Run();

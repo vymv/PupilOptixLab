@@ -17,13 +17,11 @@
 #include <memory>
 #include <mutex>
 
-namespace Pupil::ddgi::render
-{
+namespace Pupil::ddgi::render {
 // Shading binding table，用于绑定管线在不同阶段可以访问的数据
 // 封装的版本要求必须包含__raygen__xxx、__miss__xxx、__closesthit__xxx三个阶段对应的数据类型
 // 这里使用了concept，只要将等号右边的类型改成自定义的类型即可
-struct SBTTypes
-{
+struct SBTTypes {
     using RayGenDataType = Pupil::ddgi::render::RayGenData;
     using MissDataType = Pupil::ddgi::render::MissData;
     using HitGroupDataType = Pupil::ddgi::render::HitGroupData;
@@ -36,23 +34,20 @@ struct SBTTypes
 //   4. Inspector() 用于自定义UI上的显示与操作
 // 默认的Pass是会每帧都执行，如果需要预处理Pass，则添加Pre Tag：
 // Pass(std::string_view name, EPassTag tag = EPassTag::Pre)
-class RenderPass : public Pass
-{
-  public:
+class RenderPass : public Pass {
+public:
     RenderPass(std::string_view name = "DDGI Render Pass") noexcept;
     virtual void Run() noexcept override;
     virtual void Inspector() noexcept override;
 
-    virtual void BeforeRunning() noexcept override
-    {
+    virtual void BeforeRunning() noexcept override {
     }
-    virtual void AfterRunning() noexcept override
-    {
+    virtual void AfterRunning() noexcept override {
     }
 
     void SetScene(World *world) noexcept;
 
-  private:
+private:
     void BindingEventCallback() noexcept;
     void InitOptixPipeline() noexcept;
     void SetSBT(scene::Scene *) noexcept;
@@ -65,6 +60,8 @@ class RenderPass : public Pass
     std::atomic_bool m_dirty = true;
     Pupil::CameraHelper *m_world_camera = nullptr;
 
+    Buffer *m_glossy = nullptr;
+
     Timer m_timer;
 };
-} // namespace Pupil::ddgi::render
+}// namespace Pupil::ddgi::render
