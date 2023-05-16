@@ -150,7 +150,7 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
     float3 netIrradiance = sumIrradiance / sumWeight;
     netIrradiance *= energyConservation;
     float3 indirect = 2.0 * M_PIf * netIrradiance;
-    printf("indirect:%f,%f,%f\n", indirect.x, indirect.y, indirect.z);
+    //printf("indirect:%f,%f,%f\n", indirect.x, indirect.y, indirect.z);
     // if (isnan(indirect.x))
     //printf("%f,%f,%f,weights:%f\n", sumIrradiance.x, sumIrradiance.y, sumIrradiance.z, sumWeight);
     //return sumIrradiance;

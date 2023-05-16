@@ -33,7 +33,7 @@ __device__ float3 getrayHitRadiance(int rayIndex, const float4 *raygbuffer) {
 __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const float4 *raygbuffer,
                             const float3 *rayorigin, const float3 *raydirection, const float3 *rayhitposition,
                             const float3 *rayhitnormal, uint2 size, int raysPerProbe, int probeSideLength,
-                            float maxDistance, float hysteresis, float depthSharpness, bool irradiance) {
+                            float maxDistance, bool firstframe, float hysteresis, float depthSharpness, bool irradiance) {
     // __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const float4 *raygbuffer,
     //                             const float3 *rayorigin, const float3 *rayhitposition, const float3 *rayhitnormal,
     //                             uint2 size, int raysPerProbe, int probeSideLength, float maxDistance, float
@@ -61,10 +61,15 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
     float3 newvaule = make_float3(0.0f);
 
     float3 oldvaule = make_float3(0.0f);
-    if (irradiance) {
-        oldvaule = make_float3(probeirradiance[pixel_index].x, probeirradiance[pixel_index].y, probeirradiance[pixel_index].z);
+
+    if (!firstframe) {
+        if (irradiance) {
+            oldvaule = make_float3(probeirradiance[pixel_index].x, probeirradiance[pixel_index].y, probeirradiance[pixel_index].z);
+        } else {
+            oldvaule = make_float3(probedepth[pixel_index].x, probedepth[pixel_index].y, probedepth[pixel_index].z);
+        }
     } else {
-        oldvaule = make_float3(probedepth[pixel_index].x, probedepth[pixel_index].y, probedepth[pixel_index].z);
+        hysteresis = 0.0f;
     }
 
     // float3 oldvaule = make_float3(output[pixel_index].x, output[pixel_index].y, output[pixel_index].z);
@@ -130,13 +135,15 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
     }
     if (result.w > epsilon) {
         newvaule = make_float3(result.x, result.y, result.z) / result.w;
-        //printf("oldvaule %f %f %f\n", oldvaule.x, oldvaule.y, oldvaule.z);
+
         float srcfactor = 1.0f - hysteresis;
         result = make_float4(newvaule * srcfactor + oldvaule * (1.0f - srcfactor), 1.0);
         //result = make_float4(newvaule, 1.0);
     }
 
     if (irradiance) {
+        // printf("oldvaule %f %f %f\n", oldvaule.x, oldvaule.y, oldvaule.z);
+        // printf("result %f %f %f\n", result.x, result.y, result.z);
         probeirradiance[pixel_index] = result;
     } else {
         probedepth[pixel_index] = result;
@@ -146,7 +153,7 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
 }
 
 void UpdateProbeCPU(cudaStream_t stream, Pupil::ddgi::probe::UpdateParams update_params, uint2 size, int raysPerProbe,
-                    int probeSideLength, float maxDistance, float hysteresis, float depthSharpness, bool irradiance) {
+                    int probeSideLength, float maxDistance, bool firstframe, float hysteresis, float depthSharpness, bool irradiance) {
 
     constexpr int block_size_x = 32;
     constexpr int block_size_y = 32;
@@ -161,7 +168,7 @@ void UpdateProbeCPU(cudaStream_t stream, Pupil::ddgi::probe::UpdateParams update
         update_params.probeirradiance.GetDataPtr(), update_params.probedepth.GetDataPtr(),
         update_params.rayradiance.GetDataPtr(), update_params.rayorgin.GetDataPtr(),
         update_params.raydirection.GetDataPtr(), update_params.rayhitposition.GetDataPtr(),
-        update_params.rayhitnormal.GetDataPtr(), size, raysPerProbe, probeSideLength, maxDistance, hysteresis,
+        update_params.rayhitnormal.GetDataPtr(), size, raysPerProbe, probeSideLength, maxDistance, firstframe, hysteresis,
         depthSharpness, irradiance);
 }
 

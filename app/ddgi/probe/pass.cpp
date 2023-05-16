@@ -89,6 +89,7 @@ void ProbePass::BeforeRunning() noexcept {
 }
 
 void ProbePass::Run() noexcept {
+    //printf("framecount:%d\n", m_frame_cnt);
     m_timer.Start();
     {
         if (m_dirty) {
@@ -179,18 +180,18 @@ void ProbePass::Run() noexcept {
         // 输出
         // auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
         // m_update_params.probeirradiance.SetData(frame_buffer.cuda_ptr, size.h * size.w);
-
         auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
+        auto probedepthbuffer = buf_mngr->GetBuffer("ddgi_probedepth");
+
         m_update_params.probeirradiance.SetData(probeirradiancebuffer->cuda_res.ptr,
                                                 m_probeirradiancesize.h * m_probeirradiancesize.w);
-
-        auto probedepthbuffer = buf_mngr->GetBuffer("ddgi_probedepth");
         m_update_params.probedepth.SetData(probedepthbuffer->cuda_res.ptr,
                                            m_probeirradiancesize.h * m_probeirradiancesize.w);
+
         // irradiance
         UpdateProbeCPU(m_stream->GetStream(), m_update_params,
                        make_uint2(m_probeirradiancesize.w, m_probeirradiancesize.h), m_irradiancerays_perprobe,
-                       m_probesidelength, m_maxdistance, m_frame_cnt == 0 ? 0.0f : m_hysteresis, m_depthSharpness,
+                       m_probesidelength, m_maxdistance, m_frame_cnt == 0, m_hysteresis, m_depthSharpness,
                        true);
 
         m_stream->Synchronize();
@@ -198,7 +199,7 @@ void ProbePass::Run() noexcept {
         // depth
         UpdateProbeCPU(m_stream->GetStream(), m_update_params,
                        make_uint2(m_probeirradiancesize.w, m_probeirradiancesize.h), m_irradiancerays_perprobe,
-                       m_probesidelength, m_maxdistance, m_frame_cnt == 0 ? 0.0f : m_hysteresis, m_depthSharpness,
+                       m_probesidelength, m_maxdistance, m_frame_cnt == 0, m_hysteresis, m_depthSharpness,
                        false);
 
         m_stream->Synchronize();
@@ -293,7 +294,6 @@ void ProbePass::Run() noexcept {
             // cudaStreamSynchronize(m_stream->GetStream());
         }
         m_frame_cnt++;
-        printf("framecount:%d\n", m_frame_cnt);
     }
     m_timer.Stop();
     m_time_cnt = m_timer.ElapsedMilliseconds();
