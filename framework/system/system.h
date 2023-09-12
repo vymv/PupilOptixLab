@@ -10,10 +10,6 @@ namespace Pupil {
 class Pass;
 class GuiPass;
 
-namespace optix {
-class Scene;
-}
-
 enum class ESystemEvent {
     Quit,
     Precompute,
@@ -24,6 +20,8 @@ enum class ESystemEvent {
 };
 
 class System : public util::Singleton<System> {
+    friend class GuiPass;
+
 public:
     bool render_flag = true;
     bool quit_flag = false;

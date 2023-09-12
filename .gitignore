@@ -4,8 +4,6 @@ target/
 .vscode/
 *.ptx
 data/*
+!data/static/*
 imgui.ini
 framework/static.h
-!data/mis.xml
-!data/cornellbox.xml
-!data/default.xml

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "sbt.h"
 #include "pipeline.h"
+#include "sbt.h"
 
 #include <memory>
 
@@ -16,69 +16,68 @@ private:
 
     const OptixDeviceContext m_device_context;
     const cudaStream_t m_cuda_stream;
+    bool m_use_inner_param = true;
 
 public:
-    Pass(const OptixDeviceContext device_context, const cudaStream_t cuda_stream) noexcept
-        : m_device_context(device_context), m_cuda_stream(cuda_stream) {}
+    Pass(const OptixDeviceContext device_context, const cudaStream_t cuda_stream, const bool use_inner_param = true) noexcept
+        : m_device_context(device_context), m_cuda_stream(cuda_stream), m_use_inner_param(use_inner_param) {}
 
     ~Pass() noexcept {
-        CUDA_FREE(m_param_cuda_memory);
+        if (m_use_inner_param)
+            CUDA_FREE(m_param_cuda_memory);
         m_sbt.reset();
         m_pipeline.reset();
     }
 
     void InitPipeline(const PipelineDesc &desc) noexcept {
-        m_pipeline = std::make_unique<Pipeline>(m_device_context, desc);
+        m_pipeline = std::make_unique<Pipeline>(desc);
     }
 
     void InitSBT(const SBTDesc<T> &desc) noexcept {
-        m_sbt = std::make_unique<SBT<T>>();
-        {
-            BindingInfo<typename T::RayGenDataType> rg_data;
-            typename decltype(rg_data)::Pair data{
-                .program = m_pipeline->FindProgram(desc.ray_gen_data.program_name),
-                .data = desc.ray_gen_data.data
-            };
-            rg_data.datas.push_back(data);
-            m_sbt->SetRayGenData(rg_data);
+        m_sbt = std::make_unique<SBT<T>>(desc, m_pipeline.get());
+    }
+
+    void SetExternalLaunchParamPtr(CUdeviceptr cuda_memory) noexcept {
+        m_param_cuda_memory = reinterpret_cast<void *>(cuda_memory);
+        m_use_inner_param = false;
+    }
+
+    CUdeviceptr GetLaunchParamPtr() noexcept {
+        if (m_use_inner_param) {
+            if (m_param_cuda_memory == nullptr)
+                CUDA_CHECK(cudaMalloc(&m_param_cuda_memory, sizeof(LaunchParamT)));
+        } else {
+            assert(m_param_cuda_memory != nullptr && "CUDA memory for OptiX launch parameters should be allocated");
         }
-        {
-            BindingInfo<typename T::HitGroupDataType> hit_datas{};
-            for (auto &hit_data : desc.hit_datas) {
-                typename decltype(hit_datas)::Pair data{
-                    .program = m_pipeline->FindProgram(hit_data.program_name),
-                    .data = hit_data.data
-                };
-                hit_datas.datas.push_back(data);
-            }
-            m_sbt->SetHitGroupData(hit_datas);
-        }
-        {
-            BindingInfo<typename T::MissDataType> miss_datas{};
-            for (auto &miss_data : desc.miss_datas) {
-                typename decltype(miss_datas)::Pair data{
-                    .program = m_pipeline->FindProgram(miss_data.program_name),
-                    .data = miss_data.data
-                };
-                miss_datas.datas.push_back(data);
-            }
-            m_sbt->SetMissData(miss_datas);
-        }
+
+        return reinterpret_cast<CUdeviceptr>(m_param_cuda_memory);
+    }
+
+    void Run(CUdeviceptr param_cuda_memory, const unsigned int launch_w, const unsigned int launch_h) noexcept {
+        OPTIX_CHECK(optixLaunch(
+            *m_pipeline.get(),
+            m_cuda_stream,
+            param_cuda_memory,
+            sizeof(LaunchParamT),
+            &m_sbt->sbt,
+            launch_w,
+            launch_h,
+            1// launch depth
+            ));
     }
 
     void Run(const LaunchParamT &params, const unsigned int launch_w, const unsigned int launch_h) noexcept {
-        if (m_param_cuda_memory == nullptr)
-            CUDA_CHECK(cudaMalloc(&m_param_cuda_memory, sizeof(LaunchParamT)));
+        auto param_cuda_memory = GetLaunchParamPtr();
 
         CUDA_CHECK(cudaMemcpyAsync(
-            m_param_cuda_memory,
+            reinterpret_cast<void *>(param_cuda_memory),
             &params, sizeof(LaunchParamT),
             cudaMemcpyHostToDevice, m_cuda_stream));
 
         OPTIX_CHECK(optixLaunch(
             *m_pipeline.get(),
             m_cuda_stream,
-            reinterpret_cast<CUdeviceptr>(m_param_cuda_memory),
+            param_cuda_memory,
             sizeof(LaunchParamT),
             &m_sbt->sbt,
             launch_w,
