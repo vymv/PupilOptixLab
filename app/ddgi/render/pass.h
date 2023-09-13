@@ -2,12 +2,14 @@
 
 #include "../indirect/global.h"
 // #include "../indirect/indirect.h"
-#include "optix/pass.h"
-#include "optix/scene/scene.h"
-#include "scene/scene.h"
 #include "system/pass.h"
-#include "system/resource.h"
-#include "system/world.h"
+//#include "optix/scene/scene.h"
+#include "resource/scene.h"
+#include "optix/pass.h"
+//#include "system/resource.h"
+#include "system/buffer.h"
+#include "world/world.h"
+
 #include "type.h"
 
 #include "cuda/stream.h"
@@ -21,7 +23,7 @@ namespace Pupil::ddgi::render {
 // Shading binding table，用于绑定管线在不同阶段可以访问的数据
 // 封装的版本要求必须包含__raygen__xxx、__miss__xxx、__closesthit__xxx三个阶段对应的数据类型
 // 这里使用了concept，只要将等号右边的类型改成自定义的类型即可
-struct SBTTypes {
+struct SBTTypes : public optix::EmptySBT {
     using RayGenDataType = Pupil::ddgi::render::RayGenData;
     using MissDataType = Pupil::ddgi::render::MissData;
     using HitGroupDataType = Pupil::ddgi::render::HitGroupData;
@@ -37,20 +39,19 @@ struct SBTTypes {
 class RenderPass : public Pass {
 public:
     RenderPass(std::string_view name = "DDGI Render Pass") noexcept;
-    virtual void Run() noexcept override;
+    virtual void OnRun() noexcept override;
     virtual void Inspector() noexcept override;
 
-    virtual void BeforeRunning() noexcept override {
-    }
-    virtual void AfterRunning() noexcept override {
-    }
+    // virtual void BeforeRunning() noexcept override {
+    // }
+    // virtual void AfterRunning() noexcept override {
+    // }
 
-    void SetScene(World *world) noexcept;
+    void SetScene(world::World *world) noexcept;
 
 private:
     void BindingEventCallback() noexcept;
     void InitOptixPipeline() noexcept;
-    void SetSBT(scene::Scene *) noexcept;
 
     OptixLaunchParams m_optix_launch_params;
     std::unique_ptr<cuda::Stream> m_stream;
@@ -58,7 +59,7 @@ private:
     size_t m_output_pixel_num = 0;
 
     std::atomic_bool m_dirty = true;
-    Pupil::CameraHelper *m_world_camera = nullptr;
+    world::CameraHelper *m_world_camera = nullptr;
 
     Buffer *m_glossy = nullptr;
 

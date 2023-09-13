@@ -1,6 +1,6 @@
-#include "gbuffer/pass.h"
+//#include "gbuffer/pass.h"
 #include "probe/pass.h"
-#include "pt/pass.h"
+//#include "pt/pass.h"
 #include "render/pass.h"
 #include "static.h"
 #include "system/system.h"
@@ -25,8 +25,8 @@ int main() {
 
         // std::filesystem::path scene_file_path{ Pupil::DATA_DIR };
         // scene_file_path /= "cornellbox.xml";
-        //std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/living-room-white/scene_v3.xml";
-        std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/bathroom/scene_v3.xml";
+        std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/living-room-white/scene_v3.xml";
+        // std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/bathroom/scene_v3.xml";
         system->SetScene(scene_file_path);
 
         system->Run();

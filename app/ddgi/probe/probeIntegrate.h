@@ -10,9 +10,9 @@ namespace Pupil::ddgi::probe {
 struct UpdateParams {
     cuda::ConstArrayView<float4> rayradiance;
     cuda::ConstArrayView<float3> rayhitposition;
-    cuda::ConstArrayView<float3> rayorgin;
+    cuda::ConstArrayView<float3> rayorigin;
     cuda::ConstArrayView<float3> raydirection;
-    cuda::ConstArrayView<float3> rayhitnormal;
+    cuda::ConstArrayView<float3> rayhitnormal; 
     cuda::RWArrayView<float4> probeirradiance;
     cuda::RWArrayView<float4> probedepth;
 };

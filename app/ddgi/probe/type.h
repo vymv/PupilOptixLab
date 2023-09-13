@@ -1,9 +1,9 @@
 #pragma once
 
-#include "material/optix_material.h"
-#include "optix/geometry.h"
-#include "optix/scene/camera.h"
-#include "optix/scene/emitter.h"
+#include "render/geometry.h"
+#include "render/camera.h"
+#include "render/emitter.h"
+#include "render/material/optix_material.h"
 
 namespace Pupil::ddgi::probe {
 

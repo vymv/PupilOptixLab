@@ -34,17 +34,7 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
                             const float3 *rayorigin, const float3 *raydirection, const float3 *rayhitposition,
                             const float3 *rayhitnormal, uint2 size, int raysPerProbe, int probeSideLength,
                             float maxDistance, bool firstframe, float hysteresis, float depthSharpness, bool irradiance) {
-    // __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const float4 *raygbuffer,
-    //                             const float3 *rayorigin, const float3 *rayhitposition, const float3 *rayhitnormal,
-    //                             uint2 size, int raysPerProbe, int probeSideLength, float maxDistance, float
-    //                             hysteresis, float depthSharpness, bool irradiance)
-    // {
 
-    // float4 *output = nullptr;
-    // if (irradiance)
-    //     output = probeirradiance;
-    // else
-    //     output = probedepth;
     const float epsilon = 1e-6;
     int pixel_x = threadIdx.x + blockIdx.x * blockDim.x;
     int pixel_y = threadIdx.y + blockIdx.y * blockDim.y;
@@ -59,7 +49,6 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
 
     float4 result = make_float4(0.0f);
     float3 newvaule = make_float3(0.0f);
-
     float3 oldvaule = make_float3(0.0f);
 
     if (!firstframe) {
@@ -101,7 +90,7 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
             make_float3(raygbuffer[rayIndex].x, raygbuffer[rayIndex].y, raygbuffer[rayIndex].z) * energyConservation;
         float3 rayDirection = raydirection[rayIndex];
         float3 rayHitLocation = rayhitposition[rayIndex];
-        float3 probeLocation = rayorigin[rayIndex];
+        float3 probeLocation = rayorigin[probeId];
         float3 rayHitNormal = rayhitnormal[rayIndex];
 
         // 计算距离
@@ -119,9 +108,6 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
         } else {
             weight = pow(max(0.0, dot(texelDirection, rayDirection)), depthSharpness);
         }
-        // float weight = 1.0 / raysPerProbe;
-        // float3 rayHitRadiance = make_float3(0.0f);
-        // float rayProbeDistance = 0.1f;
 
         // Accumulate
         if (weight >= epsilon) {
@@ -138,18 +124,13 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
 
         float srcfactor = 1.0f - hysteresis;
         result = make_float4(newvaule * srcfactor + oldvaule * (1.0f - srcfactor), 1.0);
-        //result = make_float4(newvaule, 1.0);
     }
 
     if (irradiance) {
-        // printf("oldvaule %f %f %f\n", oldvaule.x, oldvaule.y, oldvaule.z);
-        // printf("result %f %f %f\n", result.x, result.y, result.z);
         probeirradiance[pixel_index] = result;
     } else {
         probedepth[pixel_index] = result;
     }
-    //output[pixel_index] = result;
-    // output[pixel_index] = make_float4(1.0f);
 }
 
 void UpdateProbeCPU(cudaStream_t stream, Pupil::ddgi::probe::UpdateParams update_params, uint2 size, int raysPerProbe,
@@ -166,7 +147,7 @@ void UpdateProbeCPU(cudaStream_t stream, Pupil::ddgi::probe::UpdateParams update
     //     probeSideLength, maxDistance, hysteresis, depthSharpness, irradiance);
     UpdateProbe<<<dim3(grid_size_x, grid_size_y), dim3(block_size_x, block_size_y), 0, stream>>>(
         update_params.probeirradiance.GetDataPtr(), update_params.probedepth.GetDataPtr(),
-        update_params.rayradiance.GetDataPtr(), update_params.rayorgin.GetDataPtr(),
+        update_params.rayradiance.GetDataPtr(), update_params.rayorigin.GetDataPtr(),
         update_params.raydirection.GetDataPtr(), update_params.rayhitposition.GetDataPtr(),
         update_params.rayhitnormal.GetDataPtr(), size, raysPerProbe, probeSideLength, maxDistance, firstframe, hysteresis,
         depthSharpness, irradiance);

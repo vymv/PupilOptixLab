@@ -1,6 +1,8 @@
 
 #include "cuda/vec_math.h"
 #include "probeCopyBorder.h"
+#include <device_launch_parameters.h>
+#include <cuda_runtime.h>
 
 __global__ void CopyBorder(float4 *probeirradiance, uint2 size, int probeSideLength)
 {

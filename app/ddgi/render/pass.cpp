@@ -4,7 +4,7 @@
 #include "imgui.h"
 #include "optix/context.h"
 #include "optix/module.h"
-#include "system/gui.h"
+#include "system/gui/gui.h"
 #include "system/system.h"
 #include "util/event.h"
 
@@ -36,7 +36,7 @@ RenderPass::RenderPass(std::string_view name) noexcept : Pass(name) {
     BindingEventCallback();
 }
 
-void RenderPass::Run() noexcept {
+void RenderPass::OnRun() noexcept {
     m_timer.Start();
     {
         // 由于ui线程和渲染线程分离，所以在渲染前先检查是否通过ui修改了渲染参数
@@ -52,19 +52,19 @@ void RenderPass::Run() noexcept {
         // model，一共有两个buffer，来回切换)
         // 只要调用GetCurrentRenderOutputBuffer即可获得，
         // 该buffer是cuda与dx12的共享资源，所以叫shared_buffer
-        auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
+        //auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().system_buffer;
 
         auto buf_mngr = util::Singleton<BufferManager>::instance();
         auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
-        m_optix_launch_params.probeirradiance.SetData(probeirradiancebuffer->cuda_res.ptr,
+        m_optix_launch_params.probeirradiance.SetData(probeirradiancebuffer->cuda_ptr,
                                                       m_probeirradiancesize.w * m_probeirradiancesize.h);
         auto probedepthbuffer = buf_mngr->GetBuffer("ddgi_probedepth");
-        m_optix_launch_params.probedepth.SetData(probedepthbuffer->cuda_res.ptr,
+        m_optix_launch_params.probedepth.SetData(probedepthbuffer->cuda_ptr,
                                                  m_probeirradiancesize.w * m_probeirradiancesize.h);
 
-        m_optix_launch_params.glossyradiance.SetData(m_glossy->cuda_res.ptr, m_output_pixel_num);
+        // m_optix_launch_params.glossyradiance.SetData(m_glossy->cuda_ptr, m_output_pixel_num);
 
-         if (m_show_type == 0) {// pt
+        if (m_show_type == 0) {// pt
             // frame_buffer写入的内容将会被展示到gui上
             // resize
             if (show_type_changed) {
@@ -77,8 +77,8 @@ void RenderPass::Run() noexcept {
                 Pupil::EventDispatcher<Pupil::ECanvasEvent::Resize>(size);
                 show_type_changed = false;
             }
-
-            m_optix_launch_params.frame_buffer.SetData(frame_buffer.cuda_ptr, m_output_pixel_num);
+            auto *framebuffer = buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME);
+            m_optix_launch_params.frame_buffer.SetData(framebuffer->cuda_ptr, m_output_pixel_num);
             m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
                               m_optix_launch_params.config.frame.height);
             m_optix_pass->Synchronize();// 等待optix渲染结束
@@ -96,7 +96,7 @@ void RenderPass::Run() noexcept {
                 show_type_changed = false;
             }
 
-            m_optix_launch_params.frame_buffer.SetData(frame_buffer.cuda_ptr, m_output_pixel_num);
+            m_optix_launch_params.frame_buffer.SetData(buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME)->cuda_ptr, m_output_pixel_num);
             m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
                               m_optix_launch_params.config.frame.height);
             m_optix_pass->Synchronize();// 等待optix渲染结束
@@ -113,7 +113,7 @@ void RenderPass::Run() noexcept {
                 show_type_changed = false;
             }
 
-            m_optix_launch_params.glossyradiance.SetData(frame_buffer.cuda_ptr, m_output_pixel_num);
+            // m_optix_launch_params.glossyradiance.SetData(frame_buffer->cuda_ptr, m_output_pixel_num);
             m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
                               m_optix_launch_params.config.frame.height);
             m_optix_pass->Synchronize();// 等待optix渲染结束
@@ -147,8 +147,8 @@ void RenderPass::Run() noexcept {
 void RenderPass::InitOptixPipeline() noexcept {
     auto module_mngr = util::Singleton<optix::ModuleManager>::instance();
 
-    auto sphere_module = module_mngr->GetModule(OPTIX_PRIMITIVE_TYPE_SPHERE);
-    auto render_module = module_mngr->GetModule(ddgi_render_pass_embedded_ptx_code);
+    auto sphere_module = module_mngr->GetModule(optix::EModuleBuiltinType::SpherePrimitive);
+    auto pt_module = module_mngr->GetModule(ddgi_render_pass_embedded_ptx_code);
 
     // 创建optix pipeline，需要填写.cu中对应的函数入口，
     // 产生光线(每一个像素都会执行，相当于一个线程)：命名前缀必须是__raygen__
@@ -161,27 +161,46 @@ void RenderPass::InitOptixPipeline() noexcept {
     optix::PipelineDesc pipeline_desc;
     {
         // for mesh(triangle) geo
-        optix::ProgramDesc desc{ .module_ptr = render_module,
-                                 .ray_gen_entry = "__raygen__main",
-                                 .hit_miss = "__miss__default",
-                                 .shadow_miss = "__miss__shadow",
-                                 .hit_group = { .ch_entry = "__closesthit__default" },
-                                 .shadow_grop = { .ch_entry = "__closesthit__shadow" } };
-        pipeline_desc.programs.push_back(desc);
+        optix::RayTraceProgramDesc forward_ray_desc{
+            .module_ptr = pt_module,
+            .ray_gen_entry = "__raygen__main",
+            .miss_entry = "__miss__default",
+            .hit_group = { .ch_entry = "__closesthit__default" },
+        };
+        pipeline_desc.ray_trace_programs.push_back(forward_ray_desc);
+        optix::RayTraceProgramDesc shadow_ray_desc{
+            .module_ptr = pt_module,
+            .miss_entry = "__miss__shadow",
+            .hit_group = { .ch_entry = "__closesthit__shadow" },
+        };
+        pipeline_desc.ray_trace_programs.push_back(shadow_ray_desc);
     }
     // mesh的求交使用built-in的三角形求交模块（默认）
     // 球的求交使用built-in的球求交模块(这里使用module_mngr->GetModule(OPTIX_PRIMITIVE_TYPE_SPHERE)生成)
     {
-        // for sphere geo
-        optix::ProgramDesc desc{ .module_ptr = render_module,
-                                 .hit_group = { .ch_entry = "__closesthit__default", .intersect_module = sphere_module },
-                                 .shadow_grop = { .ch_entry = "__closesthit__shadow", .intersect_module = sphere_module } };
-        pipeline_desc.programs.push_back(desc);
+        optix::RayTraceProgramDesc forward_ray_desc{
+            .module_ptr = pt_module,
+            .hit_group = { .ch_entry = "__closesthit__default",
+                           .intersect_module = sphere_module },
+        };
+        pipeline_desc.ray_trace_programs.push_back(forward_ray_desc);
+        optix::RayTraceProgramDesc shadow_ray_desc{
+            .module_ptr = pt_module,
+            .hit_group = { .ch_entry = "__closesthit__shadow",
+                           .intersect_module = sphere_module },
+        };
+        pipeline_desc.ray_trace_programs.push_back(shadow_ray_desc);
+    }
+    {
+        auto mat_programs = Pupil::resource::GetMaterialProgramDesc();
+        pipeline_desc.callable_programs.insert(
+            pipeline_desc.callable_programs.end(),
+            mat_programs.begin(), mat_programs.end());
     }
     m_optix_pass->InitPipeline(pipeline_desc);
 }
 
-void RenderPass::SetScene(World *world) noexcept {
+void RenderPass::SetScene(world::World *world) noexcept {
     // 对于场景初始化参数
     m_world_camera = world->camera.get();
     m_optix_launch_params.config.frame.width = world->scene->sensor.film.w;
@@ -191,9 +210,11 @@ void RenderPass::SetScene(World *world) noexcept {
 
     auto buf_mngr = util::Singleton<BufferManager>::instance();
     BufferDesc glossy_buf_desc = {
-        .type = EBufferType::Cuda,
         .name = "ddgi_glossyradiance",
-        .size = static_cast<uint64_t>(m_output_pixel_num * sizeof(float4))
+        .flag = EBufferFlag::AllowDisplay,
+        .width = m_optix_launch_params.config.frame.width,
+        .height = m_optix_launch_params.config.frame.height,
+        .stride_in_byte = sizeof(float) * 4
     };
     m_glossy = buf_mngr->AllocBuffer(glossy_buf_desc);
 
@@ -204,8 +225,8 @@ void RenderPass::SetScene(World *world) noexcept {
     m_optix_launch_params.spp = m_spp;
 
     m_optix_launch_params.frame_buffer.SetData(0, 0);
-    m_optix_launch_params.handle = world->optix_scene->ias_handle;
-    m_optix_launch_params.emitters = world->optix_scene->emitters->GetEmitterGroup();
+    m_optix_launch_params.handle = world->GetIASHandle(2, true);
+    m_optix_launch_params.emitters = world->emitters->GetEmitterGroup();
 
     m_optix_launch_params.probeStartPosition = m_probestartpos;
     m_optix_launch_params.probeStep = m_probestep;
@@ -215,54 +236,76 @@ void RenderPass::SetScene(World *world) noexcept {
     m_optix_launch_params.directOnly = false;
     m_optix_launch_params.probeirradiance.SetData(0, 0);
 
-    SetSBT(world->scene.get());
-
     m_dirty = true;
-}
 
-void RenderPass::SetSBT(scene::Scene *scene) noexcept {
     // 将场景数据绑定到sbt中
     optix::SBTDesc<SBTTypes> desc{};
-    desc.ray_gen_data = { .program_name = "__raygen__main", .data = SBTTypes::RayGenDataType{} };
+    desc.ray_gen_data = {
+        .program = "__raygen__main"
+    };
     {
         int emitter_index_offset = 0;
-        using HitGroupDataRecord = decltype(desc)::Pair<SBTTypes::HitGroupDataType>;
-        for (auto &&shape : scene->shapes) {
+        using HitGroupDataRecord = optix::ProgDataDescPair<SBTTypes::HitGroupDataType>;
+        for (auto &&ro : world->GetRenderobjects()) {
             HitGroupDataRecord hit_default_data{};
-            hit_default_data.program_name = "__closesthit__default";
-            hit_default_data.data.mat.LoadMaterial(shape.mat);
-            hit_default_data.data.geo.LoadGeometry(shape);
-            if (shape.is_emitter) {
+            hit_default_data.program = "__closesthit__default";
+            hit_default_data.data.mat = ro->mat;
+            hit_default_data.data.geo = ro->geo;
+            if (ro->is_emitter) {
                 hit_default_data.data.emitter_index_offset = emitter_index_offset;
-                emitter_index_offset += shape.sub_emitters_num;
+                emitter_index_offset += ro->sub_emitters_num;
             }
 
             desc.hit_datas.push_back(hit_default_data);
 
             HitGroupDataRecord hit_shadow_data{};
-            hit_shadow_data.program_name = "__closesthit__shadow";
-            hit_shadow_data.data.mat.type = shape.mat.type;
+            hit_shadow_data.program = "__closesthit__shadow";
+            hit_shadow_data.data.mat.type = ro->mat.type;
             desc.hit_datas.push_back(hit_shadow_data);
         }
     }
     {
-        decltype(desc)::Pair<SBTTypes::MissDataType> miss_data = { .program_name = "__miss__default",
-                                                                   .data = SBTTypes::MissDataType{} };
+        optix::ProgDataDescPair<SBTTypes::MissDataType> miss_data = {
+            .program = "__miss__default"
+        };
         desc.miss_datas.push_back(miss_data);
-        decltype(desc)::Pair<SBTTypes::MissDataType> miss_shadow_data = { .program_name = "__miss__shadow",
-                                                                          .data = SBTTypes::MissDataType{} };
+        optix::ProgDataDescPair<SBTTypes::MissDataType> miss_shadow_data = {
+            .program = "__miss__shadow"
+        };
         desc.miss_datas.push_back(miss_shadow_data);
+    }
+    {
+        auto mat_programs = Pupil::resource::GetMaterialProgramDesc();
+        for (auto &mat_prog : mat_programs) {
+            if (mat_prog.cc_entry) {
+                optix::ProgDataDescPair<SBTTypes::CallablesDataType> cc_data = {
+                    .program = mat_prog.cc_entry
+                };
+                desc.callables_datas.push_back(cc_data);
+            }
+            if (mat_prog.dc_entry) {
+                optix::ProgDataDescPair<SBTTypes::CallablesDataType> dc_data = {
+                    .program = mat_prog.dc_entry
+                };
+                desc.callables_datas.push_back(dc_data);
+            }
+        }
     }
     m_optix_pass->InitSBT(desc);
 }
 
 void RenderPass::BindingEventCallback() noexcept {
-    // 相机参数改变后，需要在渲染前将改变后的参数传入optix的pipeline中，
-    // 由于是多线程异步实现的，需要m_dirty原子操作标记一下
-    EventBinder<EWorldEvent::CameraChange>([this](void *) { m_dirty = true; });
+    EventBinder<EWorldEvent::CameraChange>([this](void *) {
+        m_dirty = true;
+    });
 
-    // 导入新的场景时，需要重新执行SetScene的逻辑
-    EventBinder<ESystemEvent::SceneLoad>([this](void *p) { SetScene((World *)p); });
+    EventBinder<EWorldEvent::RenderInstanceUpdate>([this](void *) {
+        m_dirty = true;
+    });
+
+    EventBinder<ESystemEvent::SceneLoad>([this](void *p) {
+        SetScene((world::World *)p);
+    });
 }
 
 void RenderPass::Inspector() noexcept {

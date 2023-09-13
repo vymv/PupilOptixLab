@@ -6,13 +6,13 @@
 // #include "test.h"
 #include "type.h"
 
-#include "optix/pass.h"
-#include "optix/scene/camera.h"
-#include "optix/scene/scene.h"
-#include "scene/scene.h"
 #include "system/pass.h"
-#include "system/resource.h"
-#include "system/world.h"
+#include "system/buffer.h"
+#include "render/camera.h"
+#include "resource/scene.h"
+#include "optix/pass.h"
+
+#include "world/world.h"
 
 #include "cuda/stream.h"
 
@@ -21,30 +21,26 @@
 #include <memory>
 #include <mutex>
 
-namespace Pupil::ddgi::probe
-{
-struct SBTTypes
-{
+namespace Pupil::ddgi::probe {
+struct SBTTypes : public optix::EmptySBT {
     using RayGenDataType = Pupil::ddgi::probe::RayGenData;
     using MissDataType = Pupil::ddgi::probe::MissData;
     using HitGroupDataType = Pupil::ddgi::probe::HitGroupData;
 };
 
-class ProbePass : public Pass
-{
-  public:
+class ProbePass : public Pass {
+public:
     ProbePass(std::string_view name = "DDGI Probe Pass") noexcept;
-    virtual void Run() noexcept override;
+    virtual void OnRun() noexcept override;
     virtual void Inspector() noexcept override;
-    virtual void BeforeRunning() noexcept override;
-    virtual void AfterRunning() noexcept override;
+    // virtual void BeforeRunning() noexcept override;
+    // virtual void AfterRunning() noexcept override;
 
-    void SetScene(World *) noexcept;
+    void SetScene(world::World *) noexcept;
 
-  private:
+private:
     void BindingEventCallback() noexcept;
     void InitOptixPipeline() noexcept;
-    void SetSBT(scene::Scene *) noexcept;
 
     OptixLaunchParams m_optix_launch_params;
     UpdateParams m_update_params;
@@ -53,7 +49,7 @@ class ProbePass : public Pass
     // size_t m_output_pixel_num = 0;
 
     std::atomic_bool m_dirty = true;
-    optix::CameraHelper *m_world_camera = nullptr;
+    world::CameraHelper *m_world_camera = nullptr;
 
     Timer m_timer;
 
@@ -80,4 +76,4 @@ class ProbePass : public Pass
 
     unsigned int m_frame_cnt = 0;
 };
-} // namespace Pupil::ddgi::probe
+}// namespace Pupil::ddgi::probe

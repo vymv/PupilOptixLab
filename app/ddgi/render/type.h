@@ -1,9 +1,9 @@
 #pragma once
 
-#include "material/optix_material.h"
-#include "optix/geometry.h"
-#include "optix/scene/camera.h"
-#include "optix/scene/emitter.h"
+#include "render/geometry.h"
+#include "render/camera.h"
+#include "render/emitter.h"
+#include "render/material/optix_material.h"
 
 namespace Pupil::ddgi::render {
 // OptixLaunchParams是在optix管线中全局的常量，可以自由定义，但尽量保持结构体占用的内存较小，
@@ -12,8 +12,7 @@ namespace Pupil::ddgi::render {
 // __constant__ OptixLaunchParams optix_launch_params;
 // }
 struct OptixLaunchParams {
-    struct
-    {
+    struct {
         unsigned int max_depth;
 
         struct
@@ -31,7 +30,7 @@ struct OptixLaunchParams {
     optix::EmitterGroup emitters;
 
     cuda::RWArrayView<float4> frame_buffer;
-    cuda::RWArrayView<float4> glossyradiance;
+    // cuda::RWArrayView<float4> glossyradiance;
     cuda::ConstArrayView<float4> probeirradiance;
     cuda::ConstArrayView<float4> probedepth;
 

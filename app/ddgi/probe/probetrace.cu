@@ -3,11 +3,13 @@
 
 // #include "../indirect/indirect.h"
 #include "../indirect/probemath.h"
-#include "optix/geometry.h"
-#include "optix/scene/emitter.h"
+#include "render/geometry.h"
+#include "render/emitter.h"
 #include "optix/util.h"
 
 #include "cuda/random.h"
+#include <device_launch_parameters.h>
+#include <cuda_runtime.h>
 
 using namespace Pupil;
 
@@ -20,7 +22,7 @@ struct Mat3 {
 };
 struct HitInfo {
     optix::LocalGeometry geo;
-    optix::material::Material mat;
+    optix::material::Material::LocalBsdf bsdf;
     int emitter_index;
 };
 
@@ -103,7 +105,7 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
         {
             float3 trueDirectionToProbe = normalize(probePos - wsPosition);
             // weight *= max(0.0001, dot(trueDirectionToProbe, wsN));
-            weight *= pow(max(0.0001, (dot(trueDirectionToProbe, wsN) + 1.0) * 0.5), 2) + 0.2;
+            weight *= pow(max(0.0001f, (dot(trueDirectionToProbe, wsN) + 1.0) * 0.5), 2) + 0.2;
         }
 
         // Moment visibility test (chebyshev)
@@ -120,7 +122,7 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
 
             float distToProbe = length(probeToPoint);
             float chebyshevWeight = variance / (variance + pow(max(distToProbe - mean, 0.0), 2));
-            chebyshevWeight = max(pow(chebyshevWeight, 3), 0.0);
+            chebyshevWeight = max(pow(chebyshevWeight, 3), 0.0f);
 
             weight *= (distToProbe <= mean) ? 1.0 : chebyshevWeight;
         }
@@ -239,7 +241,8 @@ extern "C" __global__ void __raygen__main() {
     // direct light sampling
 
     auto &emitter = optix_launch_params.emitters.SelectOneEmiiter(record.random.Next());
-    auto emitter_sample_record = emitter.SampleDirect(local_hit.geo, record.random.Next2());
+    optix::EmitterSampleRecord emitter_sample_record;
+    emitter.SampleDirect(emitter_sample_record, local_hit.geo, record.random.Next2());
 
     if (!optix::IsZero(emitter_sample_record.pdf)) {
         bool occluded =
@@ -247,9 +250,13 @@ extern "C" __global__ void __raygen__main() {
                                            0.001f, emitter_sample_record.distance - 0.001f);
 
         if (!occluded) {
-            float3 wi = optix::ToLocal(emitter_sample_record.wi, local_hit.geo.normal);
-            float3 wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
-            auto [f, pdf] = record.hit.mat.Eval(wi, wo, local_hit.geo.texcoord);
+            optix::BsdfSamplingRecord eval_record;
+            eval_record.wi = optix::ToLocal(emitter_sample_record.wi, local_hit.geo.normal);
+            eval_record.wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
+            eval_record.sampler = &record.random;
+            record.hit.bsdf.Eval(eval_record);
+            float3 f = eval_record.f;
+            float pdf = eval_record.pdf;
             if (!optix::IsZero(f)) {
                 float NoL = dot(local_hit.geo.normal, emitter_sample_record.wi);
                 emitter_sample_record.pdf *= emitter.select_probability;
@@ -262,13 +269,20 @@ extern "C" __global__ void __raygen__main() {
     result += record.radiance;
 
     // diffuse indirect
-    float3 il_wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
     float3 indirectlight = ComputeIndirect(
         normalize(record.hit.geo.normal), record.hit.geo.position, ray_origin,
         optix_launch_params.probeirradiance.GetDataPtr(), optix_launch_params.probedepth.GetDataPtr(),
         optix_launch_params.probeStartPosition, optix_launch_params.probeStep, optix_launch_params.probeCount,
         optix_launch_params.probeirradiancesize, optix_launch_params.probeSideLength, 0.95f);
-    auto [diffuse_f, diffuse_pdf] = record.hit.mat.Eval(il_wo, il_wo, local_hit.geo.texcoord);
+        
+        optix::BsdfSamplingRecord diffuse_record;
+        diffuse_record.wi = optix::ToLocal(-ray_direction, local_hit.geo.normal);
+        diffuse_record.wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
+        diffuse_record.sampled_tex = local_hit.geo.texcoord;
+        record.hit.bsdf.Eval(diffuse_record);
+        float3 diffuse_f = diffuse_record.f;
+        float diffuse_pdf = diffuse_record.pdf;
+    
     if (!optix::IsZero(diffuse_f))
         result += indirectlight * diffuse_f;
 
@@ -294,12 +308,17 @@ extern "C" __global__ void __miss__default() {
 
     auto record = optix::GetPRD<PathPayloadRecord>();
     if (optix_launch_params.emitters.env) {
-        optix::LocalGeometry temp;
-        temp.position = optixGetWorldRayDirection();
-        float3 scatter_pos = make_float3(0.f);
-        auto env_emit_record = optix_launch_params.emitters.env->Eval(temp, scatter_pos);
-        record->env_radiance = env_emit_record.radiance;
-        record->env_pdf = env_emit_record.pdf;
+        auto &env = *optix_launch_params.emitters.env.GetDataPtr();
+
+        const auto ray_dir = normalize(optixGetWorldRayDirection());
+        const auto ray_o = optixGetWorldRayOrigin();
+
+        optix::LocalGeometry env_local;
+        env_local.position = ray_o + ray_dir;
+        optix::EmitEvalRecord emit_record;
+        env.Eval(emit_record, env_local, ray_o);
+        record->env_radiance = emit_record.radiance;
+        record->env_pdf = emit_record.pdf;
     }
     record->hit.emitter_index = -1;
     record->color = make_float3(1.0, 0.0, 1.0);
@@ -312,14 +331,14 @@ extern "C" __global__ void __closesthit__default() {
     const auto ray_dir = optixGetWorldRayDirection();
     const auto ray_o = optixGetWorldRayOrigin();
 
-    record->hit.geo = sbt_data->geo.GetHitLocalGeometry(ray_dir, sbt_data->mat.twosided);
+    sbt_data->geo.GetHitLocalGeometry(record->hit.geo, ray_dir, sbt_data->mat.twosided);
     if (sbt_data->emitter_index_offset >= 0) {
         record->hit.emitter_index = sbt_data->emitter_index_offset + optixGetPrimitiveIndex();
     } else {
         record->hit.emitter_index = -1;
     }
 
-    record->hit.mat = sbt_data->mat;
+    record->hit.bsdf = sbt_data->mat.GetLocalBsdf(record->hit.geo.texcoord);
 
     record->color = make_float3(record->hit.geo.texcoord, 1.0);
 }

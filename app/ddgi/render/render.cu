@@ -3,8 +3,8 @@
 
 //#include "../indirect/indirect.h"
 #include "../indirect/probemath.h"
-#include "optix/geometry.h"
-#include "optix/scene/emitter.h"
+#include "render/geometry.h"
+#include "render/emitter.h"
 #include "optix/util.h"
 
 #include "cuda/random.h"
@@ -17,7 +17,7 @@ __constant__ ddgi::render::OptixLaunchParams optix_launch_params;
 
 struct HitInfo {
     optix::LocalGeometry geo;
-    optix::material::Material mat;
+    optix::material::Material::LocalBsdf bsdf;
     int emitter_index;
 };
 
@@ -31,7 +31,7 @@ struct PathPayloadRecord {
 
     HitInfo hit;
 
-    // unsigned int depth;
+    unsigned int depth;
     bool done;
 };
 
@@ -105,7 +105,7 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
         {
             float3 trueDirectionToProbe = normalize(probePos - wsPosition);
             // weight *= max(0.0001, dot(trueDirectionToProbe, wsN));
-            weight *= pow(max(0.0001, (dot(trueDirectionToProbe, wsN) + 1.0) * 0.5), 2) + 0.2;
+            weight *= pow(max(0.0001f, (dot(trueDirectionToProbe, wsN) + 1.0) * 0.5), 2) + 0.2;
         }
 
         // Moment visibility test (chebyshev)
@@ -122,7 +122,7 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
 
             float distToProbe = length(probeToPoint);
             float chebyshevWeight = variance / (variance + pow(max(distToProbe - mean, 0.0), 2));
-            chebyshevWeight = max(pow(chebyshevWeight, 3), 0.0);
+            chebyshevWeight = max(pow(chebyshevWeight, 3), 0.0f);
 
             weight *= (distToProbe <= mean) ? 1.0 : chebyshevWeight;
         }
@@ -164,172 +164,208 @@ extern "C" __global__ void __raygen__main() {
     const unsigned int w = optix_launch_params.config.frame.width;
     const unsigned int h = optix_launch_params.config.frame.height;
     const unsigned int pixel_index = index.y * w + index.x;
-    auto &camera = *optix_launch_params.camera.operator->();
+        auto &camera = *optix_launch_params.camera.GetDataPtr();
 
     PathPayloadRecord record{};
     uint32_t u0, u1;
     optix::PackPointer(&record, u0, u1);
+    float3 result = make_float3(0.f);
+
+    record.done = false;
+    //record.depth = 0u;
+    record.throughput = make_float3(1.f);
+    record.radiance = make_float3(0.f);
+    record.env_radiance = make_float3(0.f);
     record.random.Init(4, pixel_index, optix_launch_params.random_seed);
 
-    float3 result = make_float3(0.f);
-    float3 glossycolor = make_float3(0.f);
+    const float2 subpixel_jitter = make_float2(record.random.Next(), record.random.Next());
 
-    for (int i = 0; i < optix_launch_params.spp; ++i) {
-        record.done = false;
-        // record.depth = 0u;
-        record.throughput = make_float3(1.f);
-        record.radiance = make_float3(0.f);
-        record.env_radiance = make_float3(0.f);
+    const float2 subpixel =
+        make_float2(
+            (static_cast<float>(index.x) + subpixel_jitter.x) / static_cast<float>(w),
+            (static_cast<float>(index.y) + subpixel_jitter.y) / static_cast<float>(h));
+    // const float2 subpixel = make_float2((static_cast<float>(index.x)) / w, (static_cast<float>(index.y)) / h);
+    const float4 point_on_film = make_float4(subpixel, 0.f, 1.f);
 
-        const float2 subpixel_jitter = make_float2(record.random.Next(), record.random.Next());
+    float4 d = camera.sample_to_camera * point_on_film;
 
-        const float2 subpixel = make_float2((static_cast<float>(index.x) + subpixel_jitter.x) / static_cast<float>(w),
-                                            (static_cast<float>(index.y) + subpixel_jitter.y) / static_cast<float>(h));
-        // const float2 subpixel = make_float2((static_cast<float>(index.x)) / w, (static_cast<float>(index.y)) / h);
-        const float4 point_on_film = make_float4(subpixel, 0.f, 1.f);
+    d /= d.w;
+    d.w = 0.f;
+    d = normalize(d);
 
-        float4 d =
-            make_float4(dot(camera.sample_to_camera.r0, point_on_film), dot(camera.sample_to_camera.r1, point_on_film),
-                        dot(camera.sample_to_camera.r2, point_on_film), dot(camera.sample_to_camera.r3, point_on_film));
+    float3 ray_direction = normalize(make_float3(camera.camera_to_world * d));
 
-        d /= d.w;
-        d.w = 0.f;
-        d = normalize(d);
+    float3 ray_origin = make_float3(
+        camera.camera_to_world.r0.w,
+        camera.camera_to_world.r1.w,
+        camera.camera_to_world.r2.w);
 
-        float3 ray_direction = normalize(make_float3(
-            dot(camera.camera_to_world.r0, d), dot(camera.camera_to_world.r1, d), dot(camera.camera_to_world.r2, d)));
+    optixTrace(optix_launch_params.handle,
+               ray_origin, ray_direction,
+               0.001f, 1e16f, 0.f,
+               255, OPTIX_RAY_FLAG_NONE,
+               0, 2, 0,
+               u0, u1);
 
-        float3 ray_origin =
-            make_float3(camera.camera_to_world.r0.w, camera.camera_to_world.r1.w, camera.camera_to_world.r2.w);
+    auto local_hit = record.hit;
 
-        optixTrace(optix_launch_params.handle, ray_origin, ray_direction, 0.001f, 1e16f, 0.f, 255, OPTIX_RAY_FLAG_NONE,
-                   0, 2, 0, u0, u1);
-
-        // int depth = 0;
-        auto local_hit = record.hit;
-
-        if (record.hit.emitter_index >= 0) {
-            auto &emitter = optix_launch_params.emitters.areas[local_hit.emitter_index];
-            auto emission = emitter.GetRadiance(local_hit.geo.texcoord);
-            record.radiance += emission;
-        }
-        // direct light sampling
-
-        auto &emitter = optix_launch_params.emitters.SelectOneEmiiter(record.random.Next());
-        auto emitter_sample_record = emitter.SampleDirect(local_hit.geo, record.random.Next2());
-
-        if (!optix::IsZero(emitter_sample_record.pdf)) {
-            bool occluded = optix::Emitter::TraceShadowRay(optix_launch_params.handle, local_hit.geo.position,
-                                                           emitter_sample_record.wi, 0.001f,
-                                                           emitter_sample_record.distance - 0.001f);
-            if (!occluded) {
-                float3 wi = optix::ToLocal(emitter_sample_record.wi, local_hit.geo.normal);
-                float3 wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
-                auto [f, pdf] = record.hit.mat.Eval(wi, wo, local_hit.geo.texcoord);
-                if (!optix::IsZero(f)) {
-                    float NoL = dot(local_hit.geo.normal, emitter_sample_record.wi);
-                    float mis = emitter_sample_record.is_delta ? 1.f : optix::MISWeight(emitter_sample_record.pdf, pdf);
-                    emitter_sample_record.pdf *= emitter.select_probability;
-                    record.radiance +=
-                        record.throughput * emitter_sample_record.radiance * f * NoL * mis / emitter_sample_record.pdf;
-                }
-            }
-        }
-
-        record.radiance += record.env_radiance;
-        result += record.radiance;
-
-        // indirect diffuse indirect
-        if (!optix_launch_params.directOnly) {
-            float3 il_wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
-            float3 indirectlight = ComputeIndirect(
-                normalize(record.hit.geo.normal), record.hit.geo.position, ray_origin,
-                optix_launch_params.probeirradiance.GetDataPtr(), optix_launch_params.probedepth.GetDataPtr(),
-                optix_launch_params.probeStartPosition, optix_launch_params.probeStep, optix_launch_params.probeCount,
-                optix_launch_params.probeirradiancesize, optix_launch_params.probeSideLength, 1.0f);
-            auto [diffuse_f, diffuse_pdf] = record.hit.mat.Eval(il_wo, il_wo, local_hit.geo.texcoord);
-            if (!optix::IsZero(diffuse_f))
-                result += indirectlight * diffuse_f;
-        }
-
-        // printf("%f,%f,%f\n", result.x, result.y, result.z);
-        // // glossy
-        // float3 gl_wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
-        // float3 g_wi = optix::Reflect(-ray_direction, local_hit.geo.normal);
-        // float3 gl_wi = optix::ToLocal(g_wi, local_hit.geo.normal);
-        // auto [glossy_f, glossy_pdf] = record.hit.mat.Eval(gl_wi, gl_wo, local_hit.geo.texcoord);
-        // float4 glossylight = optix_launch_params.glossyradiance[pixel_index];
-        // if (!optix::IsZero(glossy_f))
-        //     result += make_float3(glossylight.x, glossylight.y, glossylight.z) * glossy_f * dot(g_wi, local_hit.geo.normal);
-
-        // glossy sampling
-        {
-            float3 glossy_ray_direction = normalize(optix::Reflect(-ray_direction, local_hit.geo.normal));
-            float3 glossy_ray_origin = local_hit.geo.position + 0.001f * glossy_ray_direction;
-
-            PathPayloadRecord glossy_record{};
-            uint32_t u2, u3;
-            optix::PackPointer(&glossy_record, u2, u3);
-            glossy_record.random.Init(4, pixel_index, optix_launch_params.random_seed);
-
-            optixTrace(optix_launch_params.handle, glossy_ray_origin, glossy_ray_direction, 0.001f, 1e16f, 0.f, 255, OPTIX_RAY_FLAG_NONE,
-                       0, 2, 0, u2, u3);
-
-            // direct shading
-            if (glossy_record.hit.emitter_index >= 0) {
-                auto &emitter_glossy = optix_launch_params.emitters.areas[glossy_record.hit.emitter_index];
-                auto emission = emitter.GetRadiance(glossy_record.hit.geo.texcoord);
-                glossy_record.radiance += emission;
-            }
-
-            auto &emitter_glossy = optix_launch_params.emitters.SelectOneEmiiter(glossy_record.random.Next());
-            auto emitter_sample_glossy_record = emitter_glossy.SampleDirect(glossy_record.hit.geo, glossy_record.random.Next2());
-
-            if (!optix::IsZero(emitter_sample_glossy_record.pdf)) {
-                bool glossy_occluded = optix::Emitter::TraceShadowRay(optix_launch_params.handle, glossy_record.hit.geo.position,
-                                                                      emitter_sample_glossy_record.wi, 0.001f,
-                                                                      emitter_sample_glossy_record.distance - 0.001f);
-                if (!glossy_occluded) {
-                    float3 wi = optix::ToLocal(emitter_sample_glossy_record.wi, glossy_record.hit.geo.normal);
-                    float3 wo = optix::ToLocal(-glossy_ray_direction, glossy_record.hit.geo.normal);
-                    auto [f, pdf] = glossy_record.hit.mat.Eval(wi, wo, glossy_record.hit.geo.texcoord);
-                    if (!optix::IsZero(f)) {
-                        float NoL = dot(glossy_record.hit.geo.normal, emitter_sample_glossy_record.wi);
-                        float mis = emitter_sample_glossy_record.is_delta ? 1.f : optix::MISWeight(emitter_sample_glossy_record.pdf, pdf);
-                        emitter_sample_glossy_record.pdf *= emitter_glossy.select_probability;
-                        glossy_record.radiance +=
-                            glossy_record.throughput * emitter_sample_glossy_record.radiance * f * NoL * mis / emitter_sample_glossy_record.pdf;
-                    }
-                }
-            }
-            glossycolor += glossy_record.env_radiance + glossy_record.radiance;
-            float3 il_wo = optix::ToLocal(-glossy_ray_direction, glossy_record.hit.geo.normal);
-            float3 reflected_point_indirect = ComputeIndirect(
-                normalize(glossy_record.hit.geo.normal), glossy_record.hit.geo.position, glossy_ray_origin,
-                optix_launch_params.probeirradiance.GetDataPtr(), optix_launch_params.probedepth.GetDataPtr(),
-                optix_launch_params.probeStartPosition, optix_launch_params.probeStep, optix_launch_params.probeCount,
-                optix_launch_params.probeirradiancesize, optix_launch_params.probeSideLength, 1.0f);
-            auto [f, pdf] = glossy_record.hit.mat.Eval(il_wo, il_wo, glossy_record.hit.geo.texcoord);
-            glossycolor += reflected_point_indirect * f;
-        }
+ 
+    if (record.hit.emitter_index >= 0) {
+        auto &emitter = optix_launch_params.emitters.areas[local_hit.emitter_index];
+        auto emission = emitter.GetRadiance(local_hit.geo.texcoord);
+        record.radiance += emission;
     }
 
-    result /= optix_launch_params.spp;
-    glossycolor /= optix_launch_params.spp;
+
+    // direct light sampling
+    {
+        auto &emitter = optix_launch_params.emitters.SelectOneEmiiter(record.random.Next());
+        optix::EmitterSampleRecord emitter_sample_record;
+        emitter.SampleDirect(emitter_sample_record, local_hit.geo, record.random.Next2());
+
+        bool occluded =
+            optix::Emitter::TraceShadowRay(
+                optix_launch_params.handle,
+                local_hit.geo.position, emitter_sample_record.wi,
+                0.001f, emitter_sample_record.distance - 0.001f);
+        if (!occluded) {
+            optix::BsdfSamplingRecord eval_record;
+            eval_record.wi = optix::ToLocal(emitter_sample_record.wi, local_hit.geo.normal);
+            eval_record.wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
+            eval_record.sampler = &record.random;
+            eval_record.sampled_tex = local_hit.geo.texcoord;
+            record.hit.bsdf.Eval(eval_record);
+            float3 f = eval_record.f;
+            float pdf = eval_record.pdf;
+            if (!optix::IsZero(f * emitter_sample_record.pdf)) {
+                float NoL = dot(local_hit.geo.normal, emitter_sample_record.wi);
+                if (NoL > 0.f) {
+                    float mis = emitter_sample_record.is_delta ? 1.f : optix::MISWeight(emitter_sample_record.pdf, pdf);
+                    emitter_sample_record.pdf *= emitter.select_probability;
+                    record.radiance += emitter_sample_record.radiance * f * NoL * mis / emitter_sample_record.pdf;
+                }
+            }
+        }
+    }
+    result += record.radiance;
+
+    // indirect diffuse indirect
+    if (!optix_launch_params.directOnly) {
+        float3 il_wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
+        float3 indirectlight = ComputeIndirect(
+            normalize(record.hit.geo.normal), record.hit.geo.position, ray_origin,
+        optix_launch_params.probeirradiance.GetDataPtr(), optix_launch_params.probedepth.GetDataPtr(),
+            optix_launch_params.probeStartPosition, optix_launch_params.probeStep, optix_launch_params.probeCount,
+            optix_launch_params.probeirradiancesize, optix_launch_params.probeSideLength, 1.0f);
+        
+        optix::BsdfSamplingRecord diffuse_record;
+        diffuse_record.wi = optix::ToLocal(-ray_direction, local_hit.geo.normal);
+        diffuse_record.wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
+        diffuse_record.sampled_tex = local_hit.geo.texcoord;
+        record.hit.bsdf.Eval(diffuse_record);
+        float3 diffuse_f = diffuse_record.f;
+        float diffuse_pdf = diffuse_record.pdf;
+
+        if (!optix::IsZero(diffuse_f))
+            result += indirectlight * diffuse_f;
+    }
+
+
+    //     // glossy sampling
+    //     {
+    //         float3 glossy_ray_direction = normalize(optix::Reflect(-ray_direction, local_hit.geo.normal));
+    //         float3 glossy_ray_origin = local_hit.geo.position + 0.001f * glossy_ray_direction;
+
+    //         PathPayloadRecord glossy_record{};
+    //         uint32_t u2, u3;
+    //         optix::PackPointer(&glossy_record, u2, u3);
+    //         glossy_record.random.Init(4, pixel_index, optix_launch_params.random_seed);
+
+    //         optixTrace(optix_launch_params.handle, glossy_ray_origin, glossy_ray_direction, 0.001f, 1e16f, 0.f, 255, OPTIX_RAY_FLAG_NONE,
+    //                    0, 2, 0, u2, u3);
+
+    //         // direct shading
+    //         if (glossy_record.hit.emitter_index >= 0) {
+    //             auto &emitter_glossy = optix_launch_params.emitters.areas[glossy_record.hit.emitter_index];
+    //             auto emission = emitter.GetRadiance(glossy_record.hit.geo.texcoord);
+    //             glossy_record.radiance += emission;
+    //         }
+
+    //         auto &emitter_glossy = optix_launch_params.emitters.SelectOneEmiiter(glossy_record.random.Next());
+    //         optix::EmitterSampleRecord emitter_sample_glossy_record;
+    //         emitter_glossy.SampleDirect(emitter_sample_glossy_record, glossy_record.hit.geo, glossy_record.random.Next2());
+    //         //auto emitter_sample_glossy_record = emitter_glossy.SampleDirect(glossy_record.hit.geo, glossy_record.random.Next2());
+
+    //         if (!optix::IsZero(emitter_sample_glossy_record.pdf)) {
+    //             bool glossy_occluded = optix::Emitter::TraceShadowRay(optix_launch_params.handle, glossy_record.hit.geo.position,
+    //                                                                   emitter_sample_glossy_record.wi, 0.001f,
+    //                                                                   emitter_sample_glossy_record.distance - 0.001f);
+    //             if (!glossy_occluded) {
+    //                 optix::BsdfSamplingRecord eval_glossy_record;
+    //                 eval_glossy_record.wi = optix::ToLocal(emitter_sample_glossy_record.wi, glossy_record.hit.geo.normal);
+    //                 eval_glossy_record.wo = optix::ToLocal(-glossy_ray_direction, glossy_record.hit.geo.normal);
+    //                 eval_glossy_record.sampler = &glossy_record.random;
+    //                 eval_glossy_record.sampled_tex = glossy_record.hit.geo.texcoord;
+
+    //                 glossy_record.hit.bsdf.Eval(eval_glossy_record);
+    //                 float3 f = eval_glossy_record.f;
+    //                 float pdf = eval_glossy_record.pdf;
+
+    //                 if (!optix::IsZero(f)) {
+    //                     float NoL = dot(glossy_record.hit.geo.normal, emitter_sample_glossy_record.wi);
+    //                     float mis = emitter_sample_glossy_record.is_delta ? 1.f : optix::MISWeight(emitter_sample_glossy_record.pdf, pdf);
+    //                     emitter_sample_glossy_record.pdf *= emitter_glossy.select_probability;
+    //                     glossy_record.radiance +=
+    //                         glossy_record.throughput * emitter_sample_glossy_record.radiance * f * NoL * mis / emitter_sample_glossy_record.pdf;
+    //                 }
+    //             }
+    //         }
+    //         glossycolor += glossy_record.env_radiance + glossy_record.radiance;
+    //         //float3 il_wo = optix::ToLocal(-glossy_ray_direction, glossy_record.hit.geo.normal);
+    //         float3 reflected_point_indirect = ComputeIndirect(
+    //             normalize(glossy_record.hit.geo.normal), glossy_record.hit.geo.position, glossy_ray_origin,
+    //             optix_launch_params.probeirradiance.GetDataPtr(), optix_launch_params.probedepth.GetDataPtr(),
+    //             optix_launch_params.probeStartPosition, optix_launch_params.probeStep, optix_launch_params.probeCount,
+    //             optix_launch_params.probeirradiancesize, optix_launch_params.probeSideLength, 1.0f);
+            
+    //         optix::BsdfSamplingRecord glossy_bsdf_record;
+    //         glossy_bsdf_record.wi = optix::ToLocal(-glossy_ray_direction, glossy_record.hit.geo.normal);
+    //         glossy_bsdf_record.wo = optix::ToLocal(-glossy_ray_direction, glossy_record.hit.geo.normal);
+    //         glossy_bsdf_record.sampled_tex = glossy_record.hit.geo.texcoord;
+    //         glossy_record.hit.bsdf.Eval(glossy_bsdf_record);
+    //         float3 glossy_f = glossy_bsdf_record.f;
+    //         //auto [f, pdf] = glossy_record.hit.mat.Eval(il_wo, il_wo, glossy_record.hit.geo.texcoord);
+    //         glossycolor += reflected_point_indirect * glossy_f;
+    //     }
+    
+
+    //result /= optix_launch_params.spp;
+    //glossycolor /= optix_launch_params.spp;
 
     optix_launch_params.frame_buffer[pixel_index] = make_float4(result, 1.f);
-    optix_launch_params.glossyradiance[pixel_index] = make_float4(glossycolor, 1.f);
+    //optix_launch_params.glossyradiance[pixel_index] = make_float4(glossycolor, 1.f);
 }
 
 extern "C" __global__ void __miss__default() {
     auto record = optix::GetPRD<PathPayloadRecord>();
     if (optix_launch_params.emitters.env) {
-        optix::LocalGeometry temp;
-        temp.position = optixGetWorldRayDirection();
-        float3 scatter_pos = make_float3(0.f);
-        auto env_emit_record = optix_launch_params.emitters.env->Eval(temp, scatter_pos);
-        record->env_radiance = env_emit_record.radiance;
-        record->env_pdf = env_emit_record.pdf;
+        // optix::LocalGeometry temp;
+        // temp.position = optixGetWorldRayDirection();
+        // float3 scatter_pos = make_float3(0.f);
+        // auto env_emit_record = optix_launch_params.emitters.env->Eval(temp, scatter_pos);
+        // record->env_radiance = env_emit_record.radiance;
+        // record->env_pdf = env_emit_record.pdf;
+        auto &env = *optix_launch_params.emitters.env.GetDataPtr();
+
+        const auto ray_dir = normalize(optixGetWorldRayDirection());
+        const auto ray_o = optixGetWorldRayOrigin();
+
+        optix::LocalGeometry env_local;
+        env_local.position = ray_o + ray_dir;
+        optix::EmitEvalRecord emit_record;
+        env.Eval(emit_record, env_local, ray_o);
+        record->env_radiance = emit_record.radiance;
+        record->env_pdf = emit_record.pdf;
     }
     record->done = true;
 }
@@ -343,14 +379,14 @@ extern "C" __global__ void __closesthit__default() {
     const auto ray_dir = optixGetWorldRayDirection();
     const auto ray_o = optixGetWorldRayOrigin();
 
-    record->hit.geo = sbt_data->geo.GetHitLocalGeometry(ray_dir, sbt_data->mat.twosided);
+    sbt_data->geo.GetHitLocalGeometry(record->hit.geo, ray_dir, sbt_data->mat.twosided);
     if (sbt_data->emitter_index_offset >= 0) {
         record->hit.emitter_index = sbt_data->emitter_index_offset + optixGetPrimitiveIndex();
     } else {
         record->hit.emitter_index = -1;
     }
 
-    record->hit.mat = sbt_data->mat;
+    record->hit.bsdf = sbt_data->mat.GetLocalBsdf(record->hit.geo.texcoord);
 }
 extern "C" __global__ void __closesthit__shadow() {
     optixSetPayload_0(1u);
