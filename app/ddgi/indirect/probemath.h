@@ -12,7 +12,7 @@ CUDA_INLINE CUDA_DEVICE float2 octEncode(float3 v)
     if (v.z < 0.0f)
     {
         result = (make_float2(1.0f) - make_float2(fabsf(result.y), fabsf(result.x))) *
-                 (make_float2(result.x >= 0 ? 1.0 : 0.0, result.y >= 0 ? 1.0 : 0.0));
+                 (make_float2(result.x >= 0 ? 1.0 : -1.0, result.y >= 0 ? 1.0 : -1.0));
     }
     return result;
 }
@@ -23,7 +23,7 @@ CUDA_INLINE CUDA_DEVICE float3 octDecode(float2 o)
     if (v.z < 0.0f)
     {
         float2 xy = (make_float2(1.0f) - make_float2(fabsf(v.y), fabsf(v.x))) *
-                    (make_float2(v.x >= 0 ? 1.0 : 0.0, v.y >= 0 ? 1.0 : 0.0));
+                    (make_float2(v.x >= 0 ? 1.0 : -1.0, v.y >= 0 ? 1.0 : -1.0));
         v.x = xy.x;
         v.y = xy.y;
     }

@@ -43,6 +43,7 @@ __device__ int3 getBaseGridCoord(float3 probeStartPosition, float3 probeStep, in
 // uniform
 __device__ int gridCoordToProbeIndex(int3 probeCount, int3 probeCoords) {
     return int(probeCoords.x + probeCoords.y * probeCount.x + probeCoords.z * probeCount.x * probeCount.y);
+    // return int(probeCoords.x * probeCount.y * probeCount.z + probeCoords.y * probeCount.z + probeCoords.z);
 }
 
 // uniform
@@ -50,7 +51,39 @@ __device__ float3 gridCoordToPosition(float3 probeStartPosition, float3 probeSte
     return probeStep * make_float3(c) + probeStartPosition;
 }
 
-__device__ int2 textureCoordFromDirection(float3 dir, int probeIndex, int fullTextureWidth, int fullTextureHeight,
+__device__ float4 bilinearInterpolation(const float4 *textureData,float2 texCoord, int fullTextureWidth, int fullTextureHeight){
+    
+    int x0 = floor(texCoord.x);
+    int y0 = floor(texCoord.y);
+    int x1 = x0 + 1;
+    int y1 = y0 + 1;
+    float u = texCoord.x - x0;
+    float v = texCoord.y - y0;
+
+    x0 = clamp(x0, 0, fullTextureWidth - 1);
+    y0 = clamp(y0, 0, fullTextureHeight - 1);
+    x1 = clamp(x1, 0, fullTextureWidth - 1);
+    y1 = clamp(y1, 0, fullTextureHeight - 1);
+
+    int index00 = y0 * fullTextureWidth + x0;
+    int index01 = y0 * fullTextureWidth + x1;
+    int index10 = y1 * fullTextureWidth + x0;
+    int index11 = y1 * fullTextureWidth + x1;
+
+    float4 pixel00 = textureData[index00];
+    float4 pixel01 = textureData[index01];
+    float4 pixel10 = textureData[index10];
+    float4 pixel11 = textureData[index11];
+
+    float4 result = (1 - u) * (1 - v) * pixel00 +
+                u * (1 - v) * pixel01 +
+                (1 - u) * v * pixel10 +
+                u * v * pixel11;
+    return result;
+
+}
+
+__device__ float2 textureCoordFromDirection(float3 dir, int probeIndex, int fullTextureWidth, int fullTextureHeight,
                                           int probeSideLength) {
     float2 normalizedOctCoord = octEncode(normalize(dir));
     float2 normalizedOctCoordZeroOne = (normalizedOctCoord + make_float2(1.0f)) * 0.5f;
@@ -67,7 +100,7 @@ __device__ int2 textureCoordFromDirection(float3 dir, int probeIndex, int fullTe
                                               (probeIndex / probesPerRow) * probeWithBorderSide) +
                                   make_float2(2.0f);
 
-    return make_int2(probeTopLeftPosition + octCoordNormalizedToTextureDimensions);
+    return probeTopLeftPosition + octCoordNormalizedToTextureDimensions;
 }
 
 __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, const float3 rayorigin,
@@ -100,7 +133,7 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
         int3 probeGridCoord = clamp(baseGridCoord + offset, make_int3(0), probeCount - make_int3(1));
         int probeIndex = gridCoordToProbeIndex(probeCount, probeGridCoord);
         float3 probePos = gridCoordToPosition(probeStartPosition, probeStep, probeGridCoord);
-
+        
         // Smooth backface test
         {
             float3 trueDirectionToProbe = normalize(probePos - wsPosition);
@@ -113,10 +146,12 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
             float normalBias = 0.05f;
             float3 w_o = normalize(rayorigin - wsPosition);
             float3 probeToPoint = wsPosition - probePos + (wsN + 3.0 * w_o) * normalBias;
+     
             float3 dir = normalize(-probeToPoint);
-            int2 texCoord = textureCoordFromDirection(-dir, probeIndex, probeirradiancesize.x, probeirradiancesize.y,
+            float2 texCoord = textureCoordFromDirection(-dir, probeIndex, probeirradiancesize.x, probeirradiancesize.y,
                                                       probeSideLength);
-            float4 temp = probedepth[texCoord.x + texCoord.y * probeirradiancesize.x];
+            // float4 temp = probedepth[texCoord.x + texCoord.y * probeirradiancesize.x];
+            float4 temp = bilinearInterpolation(probedepth, texCoord, probeirradiancesize.x, probeirradiancesize.y);
             float mean = temp.x;
             float variance = abs(pow(temp.x, 2) - temp.y);
 
@@ -139,9 +174,11 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
         float3 trilinear = (1.0 - alpha) * (1 - make_float3(offset)) + alpha * make_float3(offset);
         weight *= trilinear.x * trilinear.y * trilinear.z;
 
-        int2 texCoord = textureCoordFromDirection(normalize(wsN), probeIndex, probeirradiancesize.x,
+        float2 texCoord = textureCoordFromDirection(normalize(wsN), probeIndex, probeirradiancesize.x,
                                                   probeirradiancesize.y, probeSideLength);
-        float4 irradiance = probeirradiance[texCoord.x + texCoord.y * probeirradiancesize.x];
+
+        // float4 irradiance = probeirradiance[texCoord.x + texCoord.y * probeirradiancesize.x];
+        float4 irradiance = bilinearInterpolation(probeirradiance, texCoord, probeirradiancesize.x, probeirradiancesize.y);
 
         // weight = max(0.000001, weight);
         //printf("irradiance:%f,%f,%f\n", irradiance.x, irradiance.y, irradiance.z);
@@ -152,10 +189,26 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
     float3 netIrradiance = sumIrradiance / sumWeight;
     netIrradiance *= energyConservation;
     float3 indirect = 2.0 * M_PIf * netIrradiance;
-    //printf("indirect:%f,%f,%f\n", indirect.x, indirect.y, indirect.z);
-    // if (isnan(indirect.x))
-    //printf("%f,%f,%f,weights:%f\n", sumIrradiance.x, sumIrradiance.y, sumIrradiance.z, sumWeight);
-    //return sumIrradiance;
+
+
+    // float normalBias = 0.05f;
+    // float3 w_o = normalize(rayorigin - wsPosition);
+    // int3 offset = make_int3(1,1,1);
+    // int3 probeGridCoord = clamp(baseGridCoord + offset, make_int3(0), probeCount - make_int3(1));
+    // int probeIndex = gridCoordToProbeIndex(probeCount, probeGridCoord);
+    // float3 probePos = gridCoordToPosition(probeStartPosition, probeStep, probeGridCoord);
+    // float3 probeToPoint = wsPosition - probePos + (wsN + 3.0 * w_o) * normalBias;
+    // float2 texCoord = textureCoordFromDirection(normalize(probeToPoint), probeIndex, probeirradiancesize.x, probeirradiancesize.y,
+    //                                             probeSideLength);
+    // float distToProbe = length(probeToPoint);
+    // // float4 temp = probedepth[texCoord.x + texCoord.y * probeirradiancesize.x];
+    // float4 temp = bilinearInterpolation(probedepth, texCoord, probeirradiancesize.x, probeirradiancesize.y);
+    // float mean = temp.x;
+    // float variance = abs(pow(temp.x, 2) - temp.y);
+    // float chebyshevWeight = variance / (variance + pow(max(distToProbe - mean, 0.0), 2));
+    // chebyshevWeight = max(pow(chebyshevWeight, 3), 0.0f);
+    // indirect = make_float3(chebyshevWeight);
+
     return indirect;
 }
 
@@ -222,27 +275,25 @@ extern "C" __global__ void __raygen__main() {
         auto &emitter = optix_launch_params.emitters.SelectOneEmiiter(record.random.Next());
         optix::EmitterSampleRecord emitter_sample_record;
         emitter.SampleDirect(emitter_sample_record, local_hit.geo, record.random.Next2());
-
-        bool occluded =
-            optix::Emitter::TraceShadowRay(
-                optix_launch_params.handle,
-                local_hit.geo.position, emitter_sample_record.wi,
-                0.001f, emitter_sample_record.distance - 0.001f);
-        if (!occluded) {
-            optix::BsdfSamplingRecord eval_record;
-            eval_record.wi = optix::ToLocal(emitter_sample_record.wi, local_hit.geo.normal);
-            eval_record.wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
-            eval_record.sampler = &record.random;
-            eval_record.sampled_tex = local_hit.geo.texcoord;
-            record.hit.bsdf.Eval(eval_record);
-            float3 f = eval_record.f;
-            float pdf = eval_record.pdf;
-            if (!optix::IsZero(f * emitter_sample_record.pdf)) {
-                float NoL = dot(local_hit.geo.normal, emitter_sample_record.wi);
-                if (NoL > 0.f) {
-                    float mis = emitter_sample_record.is_delta ? 1.f : optix::MISWeight(emitter_sample_record.pdf, pdf);
+        if (!optix::IsZero(emitter_sample_record.pdf)) {
+            bool occluded =
+                optix::Emitter::TraceShadowRay(
+                    optix_launch_params.handle,
+                    local_hit.geo.position, emitter_sample_record.wi,
+                    0.001f, emitter_sample_record.distance - 0.001f);
+            if (!occluded) {
+                optix::BsdfSamplingRecord eval_record;
+                eval_record.wi = optix::ToLocal(emitter_sample_record.wi, local_hit.geo.normal);
+                eval_record.wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
+                eval_record.sampler = &record.random;
+                //eval_record.sampled_tex = local_hit.geo.texcoord;
+                record.hit.bsdf.Eval(eval_record);
+                float3 f = eval_record.f;
+                float pdf = eval_record.pdf;
+                if (!optix::IsZero(f)) {
+                    float NoL = dot(local_hit.geo.normal, emitter_sample_record.wi);
                     emitter_sample_record.pdf *= emitter.select_probability;
-                    record.radiance += emitter_sample_record.radiance * f * NoL * mis / emitter_sample_record.pdf;
+                    record.radiance += emitter_sample_record.radiance * f * NoL / emitter_sample_record.pdf;
                 }
             }
         }
@@ -251,7 +302,7 @@ extern "C" __global__ void __raygen__main() {
 
     // indirect diffuse indirect
     if (!optix_launch_params.directOnly) {
-        float3 il_wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
+
         float3 indirectlight = ComputeIndirect(
             normalize(record.hit.geo.normal), record.hit.geo.position, ray_origin,
         optix_launch_params.probeirradiance.GetDataPtr(), optix_launch_params.probedepth.GetDataPtr(),
@@ -261,11 +312,12 @@ extern "C" __global__ void __raygen__main() {
         optix::BsdfSamplingRecord diffuse_record;
         diffuse_record.wi = optix::ToLocal(-ray_direction, local_hit.geo.normal);
         diffuse_record.wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
-        diffuse_record.sampled_tex = local_hit.geo.texcoord;
+        // diffuse_record.sampled_tex = local_hit.geo.texcoord;
         record.hit.bsdf.Eval(diffuse_record);
         float3 diffuse_f = diffuse_record.f;
         float diffuse_pdf = diffuse_record.pdf;
 
+        // result += indirectlight;
         if (!optix::IsZero(diffuse_f))
             result += indirectlight * diffuse_f;
     }
@@ -367,6 +419,7 @@ extern "C" __global__ void __miss__default() {
         record->env_radiance = emit_record.radiance;
         record->env_pdf = emit_record.pdf;
     }
+
     record->done = true;
 }
 extern "C" __global__ void __miss__shadow() {

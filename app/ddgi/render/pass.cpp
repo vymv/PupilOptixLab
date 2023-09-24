@@ -1,12 +1,12 @@
 #include "pass.h"
-// #include "../global.h"
-#include "cuda/context.h"
 #include "imgui.h"
+#include "cuda/context.h"
 #include "optix/context.h"
 #include "optix/module.h"
+
+#include "util/event.h"
 #include "system/gui/gui.h"
 #include "system/system.h"
-#include "util/event.h"
 
 // 构建期通过CMake将.cu代码编译并嵌入到.c文件中，
 // 代码指令由char类型保存，只需要声明extern即可获取

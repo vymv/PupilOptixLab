@@ -1,5 +1,6 @@
 #include "../indirect/probemath.h"
 #include "cuda/vec_math.h"
+#include "cuda/kernel.h"
 #include "probeIntegrate.h"
 #include <stdio.h>
 
@@ -38,11 +39,13 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
     const float epsilon = 1e-6;
     int pixel_x = threadIdx.x + blockIdx.x * blockDim.x;
     int pixel_y = threadIdx.y + blockIdx.y * blockDim.y;
+
     if (pixel_x >= size.x)
         return;
 
     if (pixel_y >= size.y)
         return;
+
     int pixel_index = pixel_x + size.x * pixel_y;
 
     const float energyConservation = 0.7f;
@@ -78,7 +81,7 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
         return;
     }
 
-    // 计算direction
+    // 计算direction ProbeToPoint(depth) wsNormal(radiance)
     float3 texelDirection = octDecode(normalizedOctCoord(make_int2(pixel_x, pixel_y), probeSideLength));
 
     for (int r = 0; r < raysPerProbe; ++r) {
@@ -100,7 +103,6 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
         if (dot(rayHitNormal, rayHitNormal) < epsilon) {
             rayProbeDistance = maxDistance;
         }
-
         // Weight
         float weight = 0.0;
         if (irradiance) {
@@ -118,6 +120,7 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
                 result = result + make_float4(rayProbeDistance * weight, rayProbeDistance * rayProbeDistance * weight, 0.0f, weight);
             }
         }
+
     }
     if (result.w > epsilon) {
         newvaule = make_float3(result.x, result.y, result.z) / result.w;
@@ -127,7 +130,22 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
     }
 
     if (irradiance) {
+        int local_x = (pixel_x - 1) % 66 - 1;
+        int local_y = (pixel_y - 1) % 66 - 1;
+        
+        if(local_x<8 && local_y<8){
+            // probeirradiance[pixel_index] = make_float4(raydirection[local_y *8 + local_x + probeId *64].x,
+            //                                             raydirection[local_y *8 + local_x + probeId *64].y,
+            //                                             raydirection[local_y *8 + local_x + probeId *64].z,1.0f);
+            // float3 rayDirection = raydirection[local_y * 8 + local_x + 7 *64];
+            // float weight = pow(max(0.0, dot(texelDirection, rayDirection)), depthSharpness);
+            // probeirradiance[pixel_index] = make_float4(weight);
+            // probeirradiance[pixel_index] = make_float4(rayorigin[probeId],1.0f);
+            
+        }
+        // probeirradiance[pixel_index] = make_float4(texelDirection,1.0f);
         probeirradiance[pixel_index] = result;
+
     } else {
         probedepth[pixel_index] = result;
     }
@@ -140,17 +158,16 @@ void UpdateProbeCPU(cudaStream_t stream, Pupil::ddgi::probe::UpdateParams update
     constexpr int block_size_y = 32;
     int grid_size_x = (size.x + block_size_x - 1) / block_size_x;
     int grid_size_y = (size.y + block_size_y - 1) / block_size_y;
-    // UpdateProbe<<<dim3(grid_size_x, grid_size_y), dim3(block_size_x, block_size_y), 0, stream>>>(
-    //     update_params.probeirradiance.GetDataPtr(), update_params.probedepth.GetDataPtr(),
-    //     update_params.rayradiance.GetDataPtr(), update_params.rayorgin.GetDataPtr(),
-    //     update_params.rayhitposition.GetDataPtr(), update_params.rayhitnormal.GetDataPtr(), size, raysPerProbe,
-    //     probeSideLength, maxDistance, hysteresis, depthSharpness, irradiance);
+    // int grid_size_x = size.x / block_size_x;
+    // int grid_size_y = size.y / block_size_y;
+
     UpdateProbe<<<dim3(grid_size_x, grid_size_y), dim3(block_size_x, block_size_y), 0, stream>>>(
         update_params.probeirradiance.GetDataPtr(), update_params.probedepth.GetDataPtr(),
         update_params.rayradiance.GetDataPtr(), update_params.rayorigin.GetDataPtr(),
         update_params.raydirection.GetDataPtr(), update_params.rayhitposition.GetDataPtr(),
         update_params.rayhitnormal.GetDataPtr(), size, raysPerProbe, probeSideLength, maxDistance, firstframe, hysteresis,
         depthSharpness, irradiance);
+    // Pupil::cuda::LaunchKernel2D(size, UpdateProbe,stream);
 }
 
 void ChangeAlphaCPU(cudaStream_t stream, Pupil::cuda::RWArrayView<float4> &probeirradiance_show,

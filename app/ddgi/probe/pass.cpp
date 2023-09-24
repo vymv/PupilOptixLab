@@ -127,7 +127,7 @@ void ProbePass::OnRun() noexcept {
         }
 
         m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
-                          m_optix_launch_params.config.frame.height);
+                          m_optix_launch_params.config.frame.height);// probeTrace
         m_optix_pass->Synchronize();
 
         ++m_optix_launch_params.random_seed;
@@ -384,7 +384,7 @@ void ProbePass::SetScene(world::World *world) noexcept {
     float3 min = float3(aabb.min.x, aabb.min.y, aabb.min.z);
     float3 max = float3(aabb.max.x, aabb.max.y, aabb.max.z);
     // min.y = 1.0f;
-    float shrink = 0.9f;
+    float shrink = 0.7f;
     float3 center = (min + max) / 2.0f;
     min = center - (center - min) * shrink;
     max = center + (max - center) * shrink;
@@ -401,6 +401,16 @@ void ProbePass::SetScene(world::World *world) noexcept {
             }
         }
     }
+    // m_probestartpos = make_float3(-0.918999970, 0.298500001, -0.938499928);
+    // m_probestep = make_float3(1.81799996, 1.39299989, 1.82699990);
+    // m_probepos.push_back(make_float3(-0.918999970, 0.298500001, -0.938499928));
+    // m_probepos.push_back(make_float3(0.898999989, 0.298500001, -0.938499928));
+    // m_probepos.push_back(make_float3(-0.918999970, 1.69149995, -0.938499928));
+    // m_probepos.push_back(make_float3(0.898999989, 1.69149995, -0.938499928));
+    // m_probepos.push_back(make_float3(-0.918999970, 0.298500001, 0.888499975));
+    // m_probepos.push_back(make_float3(0.898999989, 0.298500001, 0.888499975));
+    // m_probepos.push_back(make_float3(-0.918999970, 1.69149995, 0.888499975));
+    // m_probepos.push_back(make_float3(0.898999989, 1.69149995, 0.888499975));
 
     float3 boundingboxlength = max - min;
     m_maxdistance = length(boundingboxlength / make_float3(m_probecountperside)) * 1.5f;

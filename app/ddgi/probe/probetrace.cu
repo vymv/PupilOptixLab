@@ -5,6 +5,7 @@
 #include "../indirect/probemath.h"
 #include "render/geometry.h"
 #include "render/emitter.h"
+#include "render/material/optix_material.h"
 #include "optix/util.h"
 
 #include "cuda/random.h"
@@ -43,6 +44,7 @@ __device__ int3 getBaseGridCoord(float3 probeStartPosition, float3 probeStep, in
 // uniform
 __device__ int gridCoordToProbeIndex(int3 probeCount, int3 probeCoords) {
     return int(probeCoords.x + probeCoords.y * probeCount.x + probeCoords.z * probeCount.x * probeCount.y);
+    // return int(probeCoords.x * probeCount.y * probeCount.z + probeCoords.y * probeCount.z + probeCoords.z);
 }
 
 // uniform
@@ -50,7 +52,39 @@ __device__ float3 gridCoordToPosition(float3 probeStartPosition, float3 probeSte
     return probeStep * make_float3(c) + probeStartPosition;
 }
 
-__device__ int2 textureCoordFromDirection(float3 dir, int probeIndex, int fullTextureWidth, int fullTextureHeight,
+__device__ float4 bilinearInterpolation(const float4 *textureData,float2 texCoord, int fullTextureWidth, int fullTextureHeight){
+    
+    int x0 = floor(texCoord.x);
+    int y0 = floor(texCoord.y);
+    int x1 = x0 + 1;
+    int y1 = y0 + 1;
+    float u = texCoord.x - x0;
+    float v = texCoord.y - y0;
+
+    x0 = clamp(x0, 0, fullTextureWidth - 1);
+    y0 = clamp(y0, 0, fullTextureHeight - 1);
+    x1 = clamp(x1, 0, fullTextureWidth - 1);
+    y1 = clamp(y1, 0, fullTextureHeight - 1);
+
+    int index00 = y0 * fullTextureWidth + x0;
+    int index01 = y0 * fullTextureWidth + x1;
+    int index10 = y1 * fullTextureWidth + x0;
+    int index11 = y1 * fullTextureWidth + x1;
+
+    float4 pixel00 = textureData[index00];
+    float4 pixel01 = textureData[index01];
+    float4 pixel10 = textureData[index10];
+    float4 pixel11 = textureData[index11];
+
+    float4 result = (1 - u) * (1 - v) * pixel00 +
+                u * (1 - v) * pixel01 +
+                (1 - u) * v * pixel10 +
+                u * v * pixel11;
+    return result;
+
+}
+
+__device__ float2 textureCoordFromDirection(float3 dir, int probeIndex, int fullTextureWidth, int fullTextureHeight,
                                           int probeSideLength) {
     float2 normalizedOctCoord = octEncode(normalize(dir));
     float2 normalizedOctCoordZeroOne = (normalizedOctCoord + make_float2(1.0f)) * 0.5f;
@@ -66,8 +100,8 @@ __device__ int2 textureCoordFromDirection(float3 dir, int probeIndex, int fullTe
     float2 probeTopLeftPosition = make_float2((probeIndex % probesPerRow) * probeWithBorderSide,
                                               (probeIndex / probesPerRow) * probeWithBorderSide) +
                                   make_float2(2.0f);
-
-    return make_int2(probeTopLeftPosition + octCoordNormalizedToTextureDimensions);
+    // TODO bilinear filtering
+    return probeTopLeftPosition + octCoordNormalizedToTextureDimensions;
 }
 
 __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, const float3 rayorigin,
@@ -76,10 +110,6 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
                                   float energyConservation) {
 
     const float epsilon = 1e-6;
-    // gbuffer_WS_NORMAL_buffer
-    // gbuffer_WS_POSITION_buffer
-    // gbuffer_WS_RAY_ORIGIN_buffer
-    // probe irradiance buffer
 
     if (dot(wsN, wsN) < 0.01) {
         return make_float3(0.0f);
@@ -111,14 +141,15 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
         // Moment visibility test (chebyshev)
         {
             float normalBias = 0.05f;
-            float3 w_o = normalize(rayorigin - wsPosition);
+            float3 w_o = normalize(rayorigin - wsPosition); // 相机位置-世界坐标位置
             float3 probeToPoint = wsPosition - probePos + (wsN + 3.0 * w_o) * normalBias;
-            float3 dir = normalize(-probeToPoint);
-            int2 texCoord = textureCoordFromDirection(-dir, probeIndex, probeirradiancesize.x, probeirradiancesize.y,
+            
+            float2 texCoord = textureCoordFromDirection(normalize(probeToPoint), probeIndex, probeirradiancesize.x, probeirradiancesize.y,
                                                       probeSideLength);
-            float4 temp = probedepth[texCoord.x + texCoord.y * probeirradiancesize.x];
+            float4 temp = bilinearInterpolation(probedepth, texCoord, probeirradiancesize.x, probeirradiancesize.y);
+            // float4 temp = probedepth[texCoord.x + texCoord.y * probeirradiancesize.x];
             float mean = temp.x;
-            float variance = abs(pow(temp.x, 2) - temp.y);
+            float variance = fabs(pow(temp.x, 2) - temp.y);
 
             float distToProbe = length(probeToPoint);
             float chebyshevWeight = variance / (variance + pow(max(distToProbe - mean, 0.0), 2));
@@ -139,12 +170,10 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
         float3 trilinear = (1.0 - alpha) * (1 - make_float3(offset)) + alpha * make_float3(offset);
         weight *= trilinear.x * trilinear.y * trilinear.z;
 
-        int2 texCoord = textureCoordFromDirection(normalize(wsN), probeIndex, probeirradiancesize.x,
+        float2 texCoord = textureCoordFromDirection(normalize(wsN), probeIndex, probeirradiancesize.x,
                                                   probeirradiancesize.y, probeSideLength);
-        float4 irradiance = probeirradiance[texCoord.x + texCoord.y * probeirradiancesize.x];
+        float4 irradiance = bilinearInterpolation(probeirradiance, texCoord, probeirradiancesize.x, probeirradiancesize.y);
 
-        // weight = max(0.000001, weight);
-        //printf("irradiance:%f,%f,%f\n", irradiance.x, irradiance.y, irradiance.z);
         sumIrradiance += weight * make_float3(irradiance.x, irradiance.y, irradiance.z);
         sumWeight += weight;
     }
@@ -152,10 +181,7 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
     float3 netIrradiance = sumIrradiance / sumWeight;
     netIrradiance *= energyConservation;
     float3 indirect = 2.0 * M_PIf * netIrradiance;
-    //printf("indirect:%f,%f,%f\n", indirect.x, indirect.y, indirect.z);
-    // if (isnan(indirect.x))
-    //printf("%f,%f,%f,weights:%f\n", sumIrradiance.x, sumIrradiance.y, sumIrradiance.z, sumWeight);
-    //return sumIrradiance;
+
     return indirect;
 }
 
@@ -216,12 +242,15 @@ extern "C" __global__ void __raygen__main() {
     record.random.Init(4, pixel_index, optix_launch_params.random_seed);
 
     float3 ray_origin = optix_launch_params.probepos[probeid];
+    // identity
     auto &m = *optix_launch_params.randomOrientation.operator->();
+
     float3 sf = sphericalFibonacci(float(rayid), float(w));
 
     float3 ray_direction = make_float3(m.re[0][0] * sf.x + m.re[0][1] * sf.y + m.re[0][2] * sf.z,
                                        m.re[1][0] * sf.x + m.re[1][1] * sf.y + m.re[1][2] * sf.z,
                                        m.re[2][0] * sf.x + m.re[2][1] * sf.y + m.re[2][2] * sf.z);
+    // float3 ray_direction = sf;
 
     // printf("%d,(%f,%f,%f)\n", probeid, ray_origin.x, ray_origin.y, ray_origin.z);
     float3 result = make_float3(0.f);
@@ -268,24 +297,26 @@ extern "C" __global__ void __raygen__main() {
     record.radiance += record.env_radiance;
     result += record.radiance;
 
-    // diffuse indirect
-    float3 indirectlight = ComputeIndirect(
-        normalize(record.hit.geo.normal), record.hit.geo.position, ray_origin,
-        optix_launch_params.probeirradiance.GetDataPtr(), optix_launch_params.probedepth.GetDataPtr(),
-        optix_launch_params.probeStartPosition, optix_launch_params.probeStep, optix_launch_params.probeCount,
-        optix_launch_params.probeirradiancesize, optix_launch_params.probeSideLength, 0.95f);
+    if(record.hit.bsdf.type != EMatType::Unknown)
+    {
+        // diffuse indirect
+        float3 indirectlight = ComputeIndirect(
+            normalize(record.hit.geo.normal), record.hit.geo.position, ray_origin,
+            optix_launch_params.probeirradiance.GetDataPtr(), optix_launch_params.probedepth.GetDataPtr(),
+            optix_launch_params.probeStartPosition, optix_launch_params.probeStep, optix_launch_params.probeCount,
+            optix_launch_params.probeirradiancesize, optix_launch_params.probeSideLength, 0.95f);
+            
+            optix::BsdfSamplingRecord diffuse_record;
+            diffuse_record.wi = optix::ToLocal(-ray_direction, local_hit.geo.normal);
+            diffuse_record.wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
+            diffuse_record.sampled_tex = local_hit.geo.texcoord;
+            record.hit.bsdf.Eval(diffuse_record);
+            float3 diffuse_f = diffuse_record.f;
+            float diffuse_pdf = diffuse_record.pdf;
         
-        optix::BsdfSamplingRecord diffuse_record;
-        diffuse_record.wi = optix::ToLocal(-ray_direction, local_hit.geo.normal);
-        diffuse_record.wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
-        diffuse_record.sampled_tex = local_hit.geo.texcoord;
-        record.hit.bsdf.Eval(diffuse_record);
-        float3 diffuse_f = diffuse_record.f;
-        float diffuse_pdf = diffuse_record.pdf;
-    
-    if (!optix::IsZero(diffuse_f))
-        result += indirectlight * diffuse_f;
-
+        if (!optix::IsZero(diffuse_f))
+            result += indirectlight * diffuse_f;
+    }
     //// glossy
     //float3 gl_wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
     //float3 g_wi = optix::Reflect(-ray_direction, local_hit.geo.normal);
@@ -298,10 +329,6 @@ extern "C" __global__ void __raygen__main() {
     optix_launch_params.rayhitposition[pixel_index] = record.hit.geo.position;
     optix_launch_params.rayhitnormal[pixel_index] = record.hit.geo.normal;
     optix_launch_params.raydirection[pixel_index] = ray_direction;
-    // optix_launch_params.raydirection[pixel_index] = make_float4(ray_direction, 1.0);
-    //     optix_launch_params.rayradiance[pixel_index] = make_float4(record.color, 1.f);
-    //     optix_launch_params.rayradiance[pixel_index] = make_float4(ray_origin, 1.f);
-    //     optix_launch_params.rayradiance[pixel_index] = make_float4(ray_direction, 1.f);
 }
 
 extern "C" __global__ void __miss__default() {
@@ -321,7 +348,9 @@ extern "C" __global__ void __miss__default() {
         record->env_pdf = emit_record.pdf;
     }
     record->hit.emitter_index = -1;
-    record->color = make_float3(1.0, 0.0, 1.0);
+    optix::material::Material::LocalBsdf local_bsdf;
+    local_bsdf.type = EMatType::Unknown;
+    record->hit.bsdf = local_bsdf;
 }
 extern "C" __global__ void __closesthit__default() {
 
