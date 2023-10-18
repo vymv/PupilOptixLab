@@ -1,5 +1,7 @@
 #include "probe/pass.h"
 #include "init/pass.h"
+#include "shading/pass.h"
+#include "spatial/pass.h"
 #include "static.h"
 #include "system/system.h"
 
@@ -21,9 +23,15 @@ int main() {
         auto render_pass = std::make_unique<Pupil::ddgi::render::RenderPass>();
         system->AddPass(render_pass.get());
 
-        std::filesystem::path scene_file_path{ Pupil::DATA_DIR };
-        scene_file_path /= "static/cornellbox.xml";
-        // std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/living-room-white/scene_v3.xml";
+        auto spatial_pass = std::make_unique<Pupil::ddgi::spatial::SpatialPass>();
+        system->AddPass(spatial_pass.get());
+
+        auto shading_pass = std::make_unique<Pupil::ddgi::shading::ShadingPass>();
+        system->AddPass(shading_pass.get());
+
+        // std::filesystem::path scene_file_path{ Pupil::DATA_DIR };
+        // scene_file_path /= "static/cornellbox.xml";
+        std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/living-room-white/scene_v3.xml";
         // std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/living-room-2/pupil_test.xml";
         // std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/veach-ajar/scene_v3.xml";
         // std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/bathroom/scene_v3.xml";

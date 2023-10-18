@@ -17,6 +17,8 @@ set(target_name ddgi-resample)
 
 cuda_compile_and_embed(ddgi_probe_pass_embedded_ptx_code probe/probetrace.cu)
 cuda_compile_and_embed(ddgi_render_pass_embedded_ptx_code init/init.cu)
+cuda_compile_and_embed(ddgi_shading_pass_embedded_ptx_code shading/shading.cu)
+cuda_compile_and_embed(ddgi_spatial_pass_embedded_ptx_code spatial/spatial_reuse.cu)
 
 file(GLOB_RECURSE ALL_INCLUDE CONFIGURE_DEPENDS "*.h")
 file(GLOB_RECURSE ALL_SOURCES CONFIGURE_DEPENDS "*.cpp")
@@ -25,6 +27,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${ALL_INCLUDE} ${ALL_SOURCES
 add_executable(${target_name}
     ${ddgi_probe_pass_embedded_ptx_code}
     ${ddgi_render_pass_embedded_ptx_code}
+    ${ddgi_shading_pass_embedded_ptx_code}
+    ${ddgi_spatial_pass_embedded_ptx_code}
     ${ALL_INCLUDE}
     ${ALL_SOURCES}
     probe/probeIntegrate.cu

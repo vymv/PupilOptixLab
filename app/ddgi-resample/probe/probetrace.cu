@@ -290,28 +290,28 @@ extern "C" __global__ void __raygen__main() {
     if (record.hit.emitter_index >= 0) {
         auto &emitter = optix_launch_params.emitters.areas[local_hit.emitter_index];
         auto emission = emitter.GetRadiance(local_hit.geo.texcoord);
-        // result = emission;
-        // attenuation
-        float distance = length(probePosition - local_hit.geo.position);
+        result = emission;
+        // // attenuation
+        // float distance = length(probePosition - local_hit.geo.position);
 
-        // invert distance
-        float3 probeToPoint = local_hit.geo.position - probePosition;
-        float2 texCoord = textureCoordFromDirection(normalize(-probeToPoint), probeid, optix_launch_params.probeirradiancesize.x, optix_launch_params.probeirradiancesize.y,
-                                                      optix_launch_params.probeSideLength);
-        float4 temp = bilinearInterpolation(optix_launch_params.probedepth.GetDataPtr(), texCoord, optix_launch_params.probeirradiancesize.x, optix_launch_params.probeirradiancesize.y);
-        float mean = temp.x;
+        // // invert distance
+        // float3 probeToPoint = local_hit.geo.position - probePosition;
+        // float2 texCoord = textureCoordFromDirection(normalize(-probeToPoint), probeid, optix_launch_params.probeirradiancesize.x, optix_launch_params.probeirradiancesize.y,
+        //                                               optix_launch_params.probeSideLength);
+        // float4 temp = bilinearInterpolation(optix_launch_params.probedepth.GetDataPtr(), texCoord, optix_launch_params.probeirradiancesize.x, optix_launch_params.probeirradiancesize.y);
+        // float mean = temp.x;
 
-        float invertDistance = mean;
-        float maxInvertDistance = getClampInvertDistance(probePosition, optix_launch_params.probeStep, normalize(-probeToPoint));
-        if(mean > maxInvertDistance){
-            invertDistance = maxInvertDistance;
-        }
+        // float invertDistance = mean;
+        // float maxInvertDistance = getClampInvertDistance(probePosition, optix_launch_params.probeStep, normalize(-probeToPoint));
+        // if(mean > maxInvertDistance){
+        //     invertDistance = maxInvertDistance;
+        // }
         
-        if(distance + invertDistance < 1e-3){
-            result = emission;
-        }else{
-            result = emission / pow(distance + invertDistance, 2.0);
-        }
+        // if(distance + invertDistance < 1e-3){
+        //     result = emission;
+        // }else{
+        //     result = emission / pow(distance + invertDistance, 2.0);
+        // }
 
         optix_launch_params.rayradiance[pixel_index] = make_float4(result, 1.f);
         optix_launch_params.rayhitposition[pixel_index] = record.hit.geo.position;

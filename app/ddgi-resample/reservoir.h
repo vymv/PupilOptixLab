@@ -15,7 +15,7 @@ struct Reservoir {
         float p_hat;
         float3 emitter_rand;
         float3 albedo;
-        bool neighbour;
+        int sample_type;
     };
 
     Sample y;

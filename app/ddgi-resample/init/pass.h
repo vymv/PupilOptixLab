@@ -61,8 +61,6 @@ private:
     std::atomic_bool m_dirty = true;
     world::CameraHelper *m_world_camera = nullptr;
 
-    Buffer *m_glossy = nullptr;
-
     Timer m_timer;
 };
 }// namespace Pupil::ddgi::render

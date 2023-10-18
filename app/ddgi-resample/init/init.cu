@@ -243,7 +243,7 @@ extern "C" __global__ void __raygen__main() {
                u0, u1);
 
     auto primary_local_hit = record.hit;
-
+    float3 primary_albedo = record.albedo;
     
     if(record.miss){
         result = record.env_radiance;
@@ -254,10 +254,16 @@ extern "C" __global__ void __raygen__main() {
         auto &emitter = optix_launch_params.emitters.areas[primary_local_hit.emitter_index];
         auto emission = emitter.GetRadiance(primary_local_hit.geo.texcoord);
         result = emission;
+
         optix_launch_params.frame_buffer[pixel_index] = make_float4(result, 1.f);
+        optix_launch_params.albedo_buffer[pixel_index] = primary_albedo;
+        optix_launch_params.position_buffer[pixel_index] = primary_local_hit.geo.position;
+        optix_launch_params.normal_buffer[pixel_index] = primary_local_hit.geo.normal;
+        optix_launch_params.emission_buffer[pixel_index] = emission;
         return;
     }
     optix_launch_params.reservoirs[pixel_index].Init();
+    
 
     // 1. Generate candidate
     // 1.1 Emissive surface
@@ -276,6 +282,7 @@ extern "C" __global__ void __raygen__main() {
         x_i.normal = emitter_sample_record.normal;
         x_i.emitter_rand = make_float3(r, r2);
         x_i.radiance = emitter_sample_record.radiance;
+        x_i.sample_type = 0;
         float w_i = 0.0;
         // p
         if (emitter_sample_record.pdf > 0.f) {
@@ -340,6 +347,7 @@ extern "C" __global__ void __raygen__main() {
             x_i.emitter_rand = make_float3(-1.0f);
             x_i.radiance = Lddgi;
             x_i.p_hat = optix::GetLuminance(Lddgi);
+            x_i.sample_type = 0;
 
             // p
             if(bsdf_sample_record.pdf > 0.f){
@@ -410,35 +418,13 @@ extern "C" __global__ void __raygen__main() {
     // }
 
 
-    // 3. Temporal reuse
 
-    // 4. Trace shadow ray from sample
-    float3 ray_origin = optix_launch_params.reservoirs[pixel_index].y.pos;
-    ray_direction = normalize(primary_local_hit.geo.position - ray_origin);
-    unsigned int occluded = 0;
-    optixTrace(optix_launch_params.handle,
-               ray_origin, ray_direction, 0.001f, length(primary_local_hit.geo.position - ray_origin)-0.001f, 0.f, 255, OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT, 1, 2, 1, occluded);
-
-
-    // 4. Shade from sample (Le + Lddgi_diffuse + specular recursion)
-    if(!occluded) {
-    
-        auto &reservoir = optix_launch_params.reservoirs[pixel_index];
-        optix::BsdfSamplingRecord eval_record;
-        eval_record.wi = optix::ToLocal(primary_local_hit.geo.normal, primary_local_hit.geo.normal);
-        eval_record.wo = optix::ToLocal(primary_local_hit.geo.normal, primary_local_hit.geo.normal);
-        eval_record.sampler = &record.random;
-        primary_local_hit.bsdf.Eval(eval_record);
-        float3 f = eval_record.f;
-
-        float3 light_dir = primary_local_hit.geo.position - reservoir.y.pos;
-        float NdotL = dot(primary_local_hit.geo.normal, -light_dir);
-
-        if(NdotL > 0)
-            result = reservoir.W * reservoir.y.radiance * f * NdotL;
-    }
 
     optix_launch_params.frame_buffer[pixel_index] = make_float4(result, 1.f);
+    optix_launch_params.albedo_buffer[pixel_index] = primary_albedo;
+    optix_launch_params.position_buffer[pixel_index] = primary_local_hit.geo.position;
+    optix_launch_params.normal_buffer[pixel_index] = primary_local_hit.geo.normal;
+    optix_launch_params.emission_buffer[pixel_index] = make_float3(0.f);
 }
 
 extern "C" __global__ void __miss__default() {

@@ -488,19 +488,5 @@ void ProbePass::BindingEventCallback() noexcept {
 }
 
 void ProbePass::Inspector() noexcept {
-    // constexpr auto show_type = std::array{"render result", "albedo", "normal"};
-    // constexpr auto show_type = std::array{"render result", "probeirradiance", "rayGbuffer"};
-    // ImGui::Combo("result", &m_show_type, show_type.data(), (int)show_type.size());
-
-    ImGui::Text("Rendering average %.3lf ms/frame (%.1lf FPS)", m_time_cnt, 1000.0f / m_time_cnt);
-    ImGui::Text("FrameCount %d", m_frame_cnt);
-
-    // ImGui::InputInt("probecountperside", &m_probecountperside);
-    // if (m_probecountperside < 2)
-    //     m_probecountperside = 2;
-    // if (m_optix_launch_params.probeCount.x != m_probecountperside)
-    // {
-    //     m_dirty = true;
-    // }
 }
 }// namespace Pupil::ddgi::probe

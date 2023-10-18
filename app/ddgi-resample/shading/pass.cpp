@@ -10,7 +10,7 @@
 
 // 构建期通过CMake将.cu代码编译并嵌入到.c文件中，
 // 代码指令由char类型保存，只需要声明extern即可获取
-extern "C" char ddgi_render_pass_embedded_ptx_code[];
+extern "C" char ddgi_shading_pass_embedded_ptx_code[];
 
 namespace Pupil {
 extern uint32_t g_window_w;
@@ -19,18 +19,14 @@ extern uint32_t g_window_h;
 
 namespace {
 int m_max_depth;
-int m_spp = 1;
-int m_num_secondary = 16;
-int m_num_emission = 16;
-int m_spatial_radius = 30;
 double m_time_cnt = 1.;
 
 int m_show_type = 0;
 Pupil::world::World *m_world;
 }// namespace
 
-namespace Pupil::ddgi::render {
-RenderPass::RenderPass(std::string_view name) noexcept : Pass(name) {
+namespace Pupil::ddgi::shading {
+ShadingPass::ShadingPass(std::string_view name) noexcept : Pass(name) {
     auto optix_ctx = util::Singleton<optix::Context>::instance();
     auto cuda_ctx = util::Singleton<cuda::Context>::instance();
     m_stream = std::make_unique<cuda::Stream>();
@@ -40,45 +36,24 @@ RenderPass::RenderPass(std::string_view name) noexcept : Pass(name) {
     BindingEventCallback();
 }
 
-void RenderPass::OnRun() noexcept {
+void ShadingPass::OnRun() noexcept {
     m_timer.Start();
     {
-        // 由于ui线程和渲染线程分离，所以在渲染前先检查是否通过ui修改了渲染参数
-        if (m_dirty) {
-            m_optix_launch_params.camera.SetData(m_world_camera->GetCudaMemory());
-            m_optix_launch_params.config.max_depth = m_max_depth;
-            m_optix_launch_params.random_seed = 0;
-            m_optix_launch_params.spp = m_spp;
-            m_optix_launch_params.handle = m_world->GetIASHandle(2, true);
-            m_dirty = false;
-        }
-
         auto buf_mngr = util::Singleton<BufferManager>::instance();
-        auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
-        m_optix_launch_params.probeirradiance.SetData(probeirradiancebuffer->cuda_ptr,
-                                                      m_probeirradiancesize.w * m_probeirradiancesize.h);
-        auto probedepthbuffer = buf_mngr->GetBuffer("ddgi_probedepth");
-        m_optix_launch_params.probedepth.SetData(probedepthbuffer->cuda_ptr,
-                                                 m_probeirradiancesize.w * m_probeirradiancesize.h);
+        auto *frame_buffer = buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME);
 
-        auto *framebuffer = buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME);
-        m_optix_launch_params.frame_buffer.SetData(framebuffer->cuda_ptr, m_output_pixel_num);
-        m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
-                          m_optix_launch_params.config.frame.height);
-        m_optix_pass->Synchronize();// 等待optix渲染结束
-
-        ++m_optix_launch_params.random_seed;
+        m_optix_launch_params.frame_buffer.SetData(frame_buffer->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
+        m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width, m_optix_launch_params.config.frame.height);
+        m_optix_pass->Synchronize();
     }
-
     m_timer.Stop();
-    m_time_cnt = m_timer.ElapsedMilliseconds();
 }
 
-void RenderPass::InitOptixPipeline() noexcept {
+void ShadingPass::InitOptixPipeline() noexcept {
     auto module_mngr = util::Singleton<optix::ModuleManager>::instance();
 
     auto sphere_module = module_mngr->GetModule(optix::EModuleBuiltinType::SpherePrimitive);
-    auto pt_module = module_mngr->GetModule(ddgi_render_pass_embedded_ptx_code);
+    auto pt_module = module_mngr->GetModule(ddgi_shading_pass_embedded_ptx_code);
 
     // 创建optix pipeline，需要填写.cu中对应的函数入口，
     // 产生光线(每一个像素都会执行，相当于一个线程)：命名前缀必须是__raygen__
@@ -130,89 +105,27 @@ void RenderPass::InitOptixPipeline() noexcept {
     m_optix_pass->InitPipeline(pipeline_desc);
 }
 
-void RenderPass::SetScene(world::World *world) noexcept {
+void ShadingPass::SetScene(world::World *world) noexcept {
     m_world = world;
     // 对于场景初始化参数
     m_world_camera = world->camera.get();
     m_optix_launch_params.config.frame.width = world->scene->sensor.film.w;
     m_optix_launch_params.config.frame.height = world->scene->sensor.film.h;
-    m_optix_launch_params.config.max_depth = world->scene->integrator.max_depth;
-    m_output_pixel_num = m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height;
 
     auto buf_mngr = util::Singleton<BufferManager>::instance();
-    BufferDesc position_buf_desc = {
-        .name = "gbuffer position",
-        .flag = EBufferFlag::AllowDisplay,
-        .width = m_optix_launch_params.config.frame.width,
-        .height = m_optix_launch_params.config.frame.height,
-        .stride_in_byte = sizeof(float) * 3
-    };
-    auto position_buf = buf_mngr->AllocBuffer(position_buf_desc);
-    m_optix_launch_params.position_buffer.SetData(position_buf->cuda_ptr, m_output_pixel_num);
 
-    BufferDesc albedo_buf_desc = {
-        .name = "gbuffer albedo",
-        .flag = EBufferFlag::AllowDisplay,
-        .width = m_optix_launch_params.config.frame.width,
-        .height = m_optix_launch_params.config.frame.height,
-        .stride_in_byte = sizeof(float) * 3
-    };
-    auto albedo_buf = buf_mngr->AllocBuffer(albedo_buf_desc);
-    m_optix_launch_params.albedo_buffer.SetData(albedo_buf->cuda_ptr, m_output_pixel_num);
-
-    BufferDesc normal_buf_desc = {
-        .name = "gbuffer normal",
-        .flag = EBufferFlag::AllowDisplay,
-        .width = m_optix_launch_params.config.frame.width,
-        .height = m_optix_launch_params.config.frame.height,
-        .stride_in_byte = sizeof(float) * 3
-    };
-    auto normal_buf = buf_mngr->AllocBuffer(normal_buf_desc);
-    m_optix_launch_params.normal_buffer.SetData(normal_buf->cuda_ptr, m_output_pixel_num);
-
-    BufferDesc emission_buf_desc = {
-        .name = "gbuffer emission",
-        .flag = EBufferFlag::AllowDisplay,
-        .width = m_optix_launch_params.config.frame.width,
-        .height = m_optix_launch_params.config.frame.height,
-        .stride_in_byte = sizeof(float) * 3
-    };
-    auto emission_buf = buf_mngr->AllocBuffer(emission_buf_desc);
-    m_optix_launch_params.emission_buffer.SetData(emission_buf->cuda_ptr, m_output_pixel_num);
-
-    BufferDesc reservoir_buf_desc{
-        .name = "screen reservoir",
-        .flag = EBufferFlag::None,
-        .width = m_optix_launch_params.config.frame.width,
-        .height = m_optix_launch_params.config.frame.height,
-        .stride_in_byte = sizeof(Reservoir)
-    };
-    auto reservoir_buf = buf_mngr->AllocBuffer(reservoir_buf_desc);
-    m_optix_launch_params.reservoirs.SetData(reservoir_buf->cuda_ptr, m_output_pixel_num);
-
-    m_max_depth = m_optix_launch_params.config.max_depth;
-    m_spp = 1;
-    m_num_secondary = 8;
-    m_num_emission = 8;
-    m_spatial_radius = 30;
-
-    m_optix_launch_params.random_seed = 0;
-    m_optix_launch_params.spp = m_spp;
-    m_optix_launch_params.num_secondary = m_num_secondary;
-    m_optix_launch_params.num_emission = m_num_emission;
-    m_optix_launch_params.spatial_radius = m_spatial_radius;
-
+    auto reservoir_buf = buf_mngr->GetBuffer("final screen reservoir");
+    m_optix_launch_params.final_reservoirs.SetData(reservoir_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
+    auto albedo_buf = buf_mngr->GetBuffer("gbuffer albedo");
+    m_optix_launch_params.albedo_buffer.SetData(albedo_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
+    auto position_buf = buf_mngr->GetBuffer("gbuffer position");
+    m_optix_launch_params.position_buffer.SetData(position_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
+    auto normal_buf = buf_mngr->GetBuffer("gbuffer normal");
+    m_optix_launch_params.normal_buffer.SetData(normal_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
+    auto emission_buf = buf_mngr->GetBuffer("gbuffer emission");
+    m_optix_launch_params.emission_buffer.SetData(emission_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
     m_optix_launch_params.frame_buffer.SetData(0, 0);
     m_optix_launch_params.handle = world->GetIASHandle(2, true);
-    m_optix_launch_params.emitters = world->emitters->GetEmitterGroup();
-
-    m_optix_launch_params.probeStartPosition = m_probestartpos;
-    m_optix_launch_params.probeStep = m_probestep;
-    m_optix_launch_params.probeCount = make_int3(m_probecountperside, m_probecountperside, m_probecountperside);
-    m_optix_launch_params.probeirradiancesize = make_uint2(m_probeirradiancesize.w, m_probeirradiancesize.h);
-    m_optix_launch_params.probeSideLength = m_probesidelength;
-    m_optix_launch_params.directOnly = false;
-    m_optix_launch_params.probeirradiance.SetData(0, 0);
 
     m_dirty = true;
 
@@ -272,7 +185,7 @@ void RenderPass::SetScene(world::World *world) noexcept {
     m_optix_pass->InitSBT(desc);
 }
 
-void RenderPass::BindingEventCallback() noexcept {
+void ShadingPass::BindingEventCallback() noexcept {
     EventBinder<EWorldEvent::CameraChange>([this](void *) {
         m_dirty = true;
     });
@@ -286,33 +199,13 @@ void RenderPass::BindingEventCallback() noexcept {
     });
 }
 
-void RenderPass::Inspector() noexcept {
+void ShadingPass::Inspector() noexcept {
     // constexpr auto show_type = std::array{"render result", "albedo", "normal"};
     constexpr auto show_type =
         std::array{ "render result", "probeirradiance", "rayGbuffer", "probedepth", "direct light", "reflected point color" };
 
     if (ImGui::Combo("result", &m_show_type, show_type.data(), (int)show_type.size()))
         show_type_changed = true;
-
-    ImGui::InputInt("spp", &m_spp);
-    if (m_spp < 1)
-        m_spp = 1;
-    if (m_optix_launch_params.spp != m_spp) {
-        m_dirty = true;
-    }
-
-    ImGui::InputInt("num_secondary_candidate", &m_num_secondary);
-    if (m_num_secondary < 1)
-        m_num_secondary = 1;
-    if (m_optix_launch_params.num_secondary != m_num_secondary) {
-        m_dirty = true;
-    }
-    ImGui::InputInt("num_emission_candidate", &m_num_emission);
-    if (m_num_emission < 1)
-        m_num_emission = 1;
-    if (m_optix_launch_params.num_emission != m_num_emission) {
-        m_dirty = true;
-    }
 
     // ImGui::InputInt("max trace depth", &m_max_depth);
     // m_max_depth = clamp(m_max_depth, 1, 128);
@@ -321,4 +214,4 @@ void RenderPass::Inspector() noexcept {
     // }
     ImGui::Text("Rendering average %.3lf ms/frame (%.1lf FPS)", m_time_cnt, 1000.0f / m_time_cnt);
 }
-}// namespace Pupil::ddgi::render
+}// namespace Pupil::ddgi::shading
