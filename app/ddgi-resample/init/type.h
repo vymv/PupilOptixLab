@@ -13,8 +13,7 @@ namespace Pupil::ddgi::render {
 // }
 struct OptixLaunchParams {
     struct {
-        unsigned int max_depth;
-
+        // unsigned int max_depth;
         struct
         {
             unsigned int width;
@@ -22,10 +21,8 @@ struct OptixLaunchParams {
         } frame;
     } config;
     unsigned int random_seed;
-    unsigned int spp;
     unsigned int num_secondary;
     unsigned int num_emission;
-    unsigned int spatial_radius;
 
     // cuda::ConstDataView和ConstArrayView可以理解为指针
     // 可以直接用optix::Camera，使用cuda指针是为了减小结构体体积
@@ -51,7 +48,8 @@ struct OptixLaunchParams {
     uint2 probeirradiancesize;
     int probeSideLength;
 
-    bool directOnly;
+    bool directOn;
+    bool indirectOn;
 };
 
 // 下面三个是和SBT绑定的结构体，

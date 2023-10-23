@@ -20,6 +20,7 @@ struct Reservoir {
 
     Sample y;
     float w_sum;
+    float p_sum;
     float W;
     unsigned int M;
 
@@ -27,16 +28,34 @@ struct Reservoir {
 
     CUDA_HOSTDEVICE void Init() noexcept {
         w_sum = 0.f;
+        p_sum = 0.f;
         W = 0.f;
         M = 0u;
         y.p_hat = 0.f;
         y.radiance = make_float3(0.f);
     }
 
+    // CUDA_HOSTDEVICE void Update(
+    //     const Sample &x_i, float w_i,
+    //     Pupil::cuda::Random &random) noexcept {
+    //     w_sum += w_i;
+    //     M += 1;
+    //     // if (random.Next() < w_i / w_sum)
+    //     //     y = x_i;
+    //     if (M == 1) {
+    //         if (w_i != 0.f)// 第一个样本一定选
+    //             y = x_i;
+    //         else// 第一个样本选择的概率为0，去掉该样本
+    //             M = 0;
+    //     } else if (random.Next() * w_sum < w_i)
+    //         y = x_i;
+    // }
+    
     CUDA_HOSTDEVICE void Update(
-        const Sample &x_i, float w_i,
+        const Sample &x_i, float w_i, float p_i,
         Pupil::cuda::Random &random) noexcept {
         w_sum += w_i;
+        p_sum += p_i;
         M += 1;
         // if (random.Next() < w_i / w_sum)
         //     y = x_i;
@@ -50,11 +69,13 @@ struct Reservoir {
     }
 
     CUDA_HOSTDEVICE void CalcW() noexcept {
-        W = (y.p_hat == 0.f || M == 0) ? 0.f : w_sum / (y.p_hat * M);
+        W = (y.p_hat == 0.f || M == 0) ? 0.f : w_sum / (y.p_hat * M * p_sum); 
+        // W = (y.p_hat == 0.f || M == 0) ? 0.f : w_sum / (y.p_hat * M);
     }
 
     CUDA_HOSTDEVICE void Combine(const Reservoir &other, Pupil::cuda::Random &random) noexcept {
-        Update(other.y, other.y.p_hat * other.W * other.M, random);
+        Update(other.y, other.y.p_hat * other.W * other.M, 0, random);
+        // Update(other.y, other.y.p_hat * other.W * other.M, random);
         M += other.M - 1;
         CalcW();
     }

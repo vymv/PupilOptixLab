@@ -115,8 +115,8 @@ void SpatialPass::SetScene(world::World *world) noexcept {
     m_optix_launch_params.position_buffer.SetData(position_buf->cuda_ptr, m_output_pixel_num);
 
     m_optix_launch_params.random_seed = 2;
-
     m_optix_launch_params.emitters = world->emitters->GetEmitterGroup();
+    m_spatial_radius = 30;
 
     m_optix_launch_params.probeStartPosition = m_probestartpos;
     m_optix_launch_params.probeStep = m_probestep;
@@ -153,8 +153,8 @@ void SpatialPass::BindingEventCallback() noexcept {
 void SpatialPass::Inspector() noexcept {
     // ImGui::Text("cost: %d ms", (int)m_time_cost);
     // ImGui::Checkbox("use Spatial reuse", &m_flag);
-    ImGui::Checkbox("use Spatial reuse", &m_on);
-    ImGui::InputInt("spatial radius", &m_spatial_radius, 1, 5);
+    ImGui::Checkbox("use spatial reuse", &m_on);
+    ImGui::InputInt("spatial radius", &m_spatial_radius);
     m_spatial_radius = clamp(m_spatial_radius, 0, 50);
     if (m_optix_launch_params.spatial_radius != m_spatial_radius) {
         m_dirty = true;

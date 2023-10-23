@@ -200,18 +200,5 @@ void ShadingPass::BindingEventCallback() noexcept {
 }
 
 void ShadingPass::Inspector() noexcept {
-    // constexpr auto show_type = std::array{"render result", "albedo", "normal"};
-    constexpr auto show_type =
-        std::array{ "render result", "probeirradiance", "rayGbuffer", "probedepth", "direct light", "reflected point color" };
-
-    if (ImGui::Combo("result", &m_show_type, show_type.data(), (int)show_type.size()))
-        show_type_changed = true;
-
-    // ImGui::InputInt("max trace depth", &m_max_depth);
-    // m_max_depth = clamp(m_max_depth, 1, 128);
-    // if (m_optix_launch_params.config.max_depth != m_max_depth) {
-    //     m_dirty = true;
-    // }
-    ImGui::Text("Rendering average %.3lf ms/frame (%.1lf FPS)", m_time_cnt, 1000.0f / m_time_cnt);
 }
 }// namespace Pupil::ddgi::shading

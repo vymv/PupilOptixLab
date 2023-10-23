@@ -19,13 +19,11 @@ extern uint32_t g_window_h;
 
 namespace {
 int m_max_depth;
-int m_spp = 1;
 int m_num_secondary = 16;
 int m_num_emission = 16;
-int m_spatial_radius = 30;
 double m_time_cnt = 1.;
-
-int m_show_type = 0;
+bool m_direct_on = true;
+bool m_indirect_on = true;
 Pupil::world::World *m_world;
 }// namespace
 
@@ -46,9 +44,11 @@ void RenderPass::OnRun() noexcept {
         // 由于ui线程和渲染线程分离，所以在渲染前先检查是否通过ui修改了渲染参数
         if (m_dirty) {
             m_optix_launch_params.camera.SetData(m_world_camera->GetCudaMemory());
-            m_optix_launch_params.config.max_depth = m_max_depth;
+            m_optix_launch_params.num_emission = m_num_emission;
+            m_optix_launch_params.num_secondary = m_num_secondary;
+            m_optix_launch_params.directOn = m_direct_on;
+            m_optix_launch_params.indirectOn = m_indirect_on;
             m_optix_launch_params.random_seed = 0;
-            m_optix_launch_params.spp = m_spp;
             m_optix_launch_params.handle = m_world->GetIASHandle(2, true);
             m_dirty = false;
         }
@@ -136,7 +136,7 @@ void RenderPass::SetScene(world::World *world) noexcept {
     m_world_camera = world->camera.get();
     m_optix_launch_params.config.frame.width = world->scene->sensor.film.w;
     m_optix_launch_params.config.frame.height = world->scene->sensor.film.h;
-    m_optix_launch_params.config.max_depth = world->scene->integrator.max_depth;
+    // m_optix_launch_params.config.max_depth = world->scene->integrator.max_depth;
     m_output_pixel_num = m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height;
 
     auto buf_mngr = util::Singleton<BufferManager>::instance();
@@ -190,17 +190,17 @@ void RenderPass::SetScene(world::World *world) noexcept {
     auto reservoir_buf = buf_mngr->AllocBuffer(reservoir_buf_desc);
     m_optix_launch_params.reservoirs.SetData(reservoir_buf->cuda_ptr, m_output_pixel_num);
 
-    m_max_depth = m_optix_launch_params.config.max_depth;
-    m_spp = 1;
+    // m_max_depth = m_optix_launch_params.config.max_depth;
     m_num_secondary = 8;
     m_num_emission = 8;
-    m_spatial_radius = 30;
+    m_direct_on = true;
+    m_indirect_on = true;
 
     m_optix_launch_params.random_seed = 0;
-    m_optix_launch_params.spp = m_spp;
     m_optix_launch_params.num_secondary = m_num_secondary;
     m_optix_launch_params.num_emission = m_num_emission;
-    m_optix_launch_params.spatial_radius = m_spatial_radius;
+    m_optix_launch_params.directOn = m_direct_on;
+    m_optix_launch_params.indirectOn = m_indirect_on;
 
     m_optix_launch_params.frame_buffer.SetData(0, 0);
     m_optix_launch_params.handle = world->GetIASHandle(2, true);
@@ -211,7 +211,6 @@ void RenderPass::SetScene(world::World *world) noexcept {
     m_optix_launch_params.probeCount = make_int3(m_probecountperside, m_probecountperside, m_probecountperside);
     m_optix_launch_params.probeirradiancesize = make_uint2(m_probeirradiancesize.w, m_probeirradiancesize.h);
     m_optix_launch_params.probeSideLength = m_probesidelength;
-    m_optix_launch_params.directOnly = false;
     m_optix_launch_params.probeirradiance.SetData(0, 0);
 
     m_dirty = true;
@@ -287,38 +286,27 @@ void RenderPass::BindingEventCallback() noexcept {
 }
 
 void RenderPass::Inspector() noexcept {
-    // constexpr auto show_type = std::array{"render result", "albedo", "normal"};
-    constexpr auto show_type =
-        std::array{ "render result", "probeirradiance", "rayGbuffer", "probedepth", "direct light", "reflected point color" };
 
-    if (ImGui::Combo("result", &m_show_type, show_type.data(), (int)show_type.size()))
-        show_type_changed = true;
-
-    ImGui::InputInt("spp", &m_spp);
-    if (m_spp < 1)
-        m_spp = 1;
-    if (m_optix_launch_params.spp != m_spp) {
+    if (ImGui::Checkbox("direct on", &m_direct_on)) {
         m_dirty = true;
     }
 
-    ImGui::InputInt("num_secondary_candidate", &m_num_secondary);
+    if (ImGui::Checkbox("indirect on", &m_indirect_on)) {
+        m_dirty = true;
+    }
+    ImGui::InputInt("secondary num", &m_num_secondary);
     if (m_num_secondary < 1)
         m_num_secondary = 1;
     if (m_optix_launch_params.num_secondary != m_num_secondary) {
         m_dirty = true;
     }
-    ImGui::InputInt("num_emission_candidate", &m_num_emission);
+    ImGui::InputInt("emission num", &m_num_emission);
     if (m_num_emission < 1)
         m_num_emission = 1;
     if (m_optix_launch_params.num_emission != m_num_emission) {
         m_dirty = true;
     }
 
-    // ImGui::InputInt("max trace depth", &m_max_depth);
-    // m_max_depth = clamp(m_max_depth, 1, 128);
-    // if (m_optix_launch_params.config.max_depth != m_max_depth) {
-    //     m_dirty = true;
-    // }
     ImGui::Text("Rendering average %.3lf ms/frame (%.1lf FPS)", m_time_cnt, 1000.0f / m_time_cnt);
 }
 }// namespace Pupil::ddgi::render

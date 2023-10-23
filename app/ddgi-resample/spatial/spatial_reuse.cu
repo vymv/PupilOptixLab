@@ -182,74 +182,74 @@ extern "C" __global__ void __raygen__main() {
     const unsigned int h = optix_launch_params.config.frame.height;
     const unsigned int pixel_index = index.y * w + index.x;
 
-    cuda::Random random;
-    random.Init(4, pixel_index, optix_launch_params.random_seed);
-    float3 position = optix_launch_params.position_buffer[pixel_index];
-    auto &camera = *optix_launch_params.camera.GetDataPtr();
-    float3 camera_pos = make_float3(
-        camera.camera_to_world.r0.w,
-        camera.camera_to_world.r1.w,
-        camera.camera_to_world.r2.w);
+    // cuda::Random random;
+    // random.Init(4, pixel_index, optix_launch_params.random_seed);
+    // float3 position = optix_launch_params.position_buffer[pixel_index];
+    // auto &camera = *optix_launch_params.camera.GetDataPtr();
+    // float3 camera_pos = make_float3(
+    //     camera.camera_to_world.r0.w,
+    //     camera.camera_to_world.r1.w,
+    //     camera.camera_to_world.r2.w);
 
-    Reservoir reservoir;
-    reservoir.Init();
-    unsigned int M = 0;
-    for (auto i = 0u; i < 5; ++i) {
-        float r = optix_launch_params.spatial_radius * random.Next();
-        float theta = M_PIf * 2.f * random.Next();
-        // 随机一个方向的neighbour pixel
-        int2 neighbor_pixel = make_int2(index.x + r * cos(theta), index.y + r * sin(theta));
-        if (neighbor_pixel.x < 0 || neighbor_pixel.x >= w || neighbor_pixel.y < 0 || neighbor_pixel.y >= h)
-            continue;
-        const unsigned int neighbor_pixel_index = neighbor_pixel.y * w + neighbor_pixel.x;
+    // Reservoir reservoir;
+    // reservoir.Init();
+    // unsigned int M = 0;
+    // for (auto i = 0u; i < 5; ++i) {
+    //     float r = optix_launch_params.spatial_radius * random.Next();
+    //     float theta = M_PIf * 2.f * random.Next();
+    //     // 随机一个方向的neighbour pixel
+    //     int2 neighbor_pixel = make_int2(index.x + r * cos(theta), index.y + r * sin(theta));
+    //     if (neighbor_pixel.x < 0 || neighbor_pixel.x >= w || neighbor_pixel.y < 0 || neighbor_pixel.y >= h)
+    //         continue;
+    //     const unsigned int neighbor_pixel_index = neighbor_pixel.y * w + neighbor_pixel.x;
 
-        // 取出邻居neighbor
-        auto &neighbor_reservoir = optix_launch_params.reservoirs[neighbor_pixel_index];
-        Reservoir::Sample x_i = neighbor_reservoir.y;
+    //     // 取出邻居neighbor
+    //     auto &neighbor_reservoir = optix_launch_params.reservoirs[neighbor_pixel_index];
+    //     Reservoir::Sample x_i = neighbor_reservoir.y;
 
-        // 构建新的样本
-        // w_i = p_hat / p_n_hat * w_n_sum
-        //     = p_hat * M_n * w_n_sum / (p_n_hat * M_n)
-        //     = p_hat * M_n * W_n
-        if((x_i.emitter_rand.x < 0.0f) && (x_i.emitter_rand.y < 0.0f) && (x_i.emitter_rand.z < 0.0f)){
-            float3 Lddgi = ComputeIndirect(normalize(position - x_i.pos),
-                                                    x_i.pos, camera_pos,
-                                                    optix_launch_params.probeirradiance.GetDataPtr(),
-                                                    optix_launch_params.probedepth.GetDataPtr(),
-                                                    optix_launch_params.probeStartPosition,
-                                                    optix_launch_params.probeStep,
-                                                    optix_launch_params.probeCount,
-                                                    optix_launch_params.probeirradiancesize,
-                                                    optix_launch_params.probeSideLength,
-                                                    1.0f);
-            Lddgi = Lddgi * x_i.albedo * M_1_PIf;
-            x_i.radiance = Lddgi;
-            x_i.p_hat = optix::GetLuminance(Lddgi);
-            x_i.sample_type = 1;
+    //     // 构建新的样本
+    //     // w_i = p_hat / p_n_hat * w_n_sum
+    //     //     = p_hat * M_n * w_n_sum / (p_n_hat * M_n)
+    //     //     = p_hat * M_n * W_n
+    //     if((x_i.emitter_rand.x < 0.0f) && (x_i.emitter_rand.y < 0.0f) && (x_i.emitter_rand.z < 0.0f)){
+    //         float3 Lddgi = ComputeIndirect(normalize(position - x_i.pos),
+    //                                                 x_i.pos, camera_pos,
+    //                                                 optix_launch_params.probeirradiance.GetDataPtr(),
+    //                                                 optix_launch_params.probedepth.GetDataPtr(),
+    //                                                 optix_launch_params.probeStartPosition,
+    //                                                 optix_launch_params.probeStep,
+    //                                                 optix_launch_params.probeCount,
+    //                                                 optix_launch_params.probeirradiancesize,
+    //                                                 optix_launch_params.probeSideLength,
+    //                                                 1.0f);
+    //         Lddgi = Lddgi * x_i.albedo * M_1_PIf;
+    //         x_i.radiance = Lddgi;
+    //         x_i.p_hat = optix::GetLuminance(Lddgi);
+    //         x_i.sample_type = 1;
             
 
-        }else{
-            auto &emitter = optix_launch_params.emitters.SelectOneEmiiter(x_i.emitter_rand.x);
-            optix::EmitterSampleRecord emitter_sample_record;
-            optix::LocalGeometry primary_local_hit;
-            primary_local_hit.position = position;
-            emitter.SampleDirect(emitter_sample_record, primary_local_hit, make_float2(x_i.emitter_rand.y,x_i.emitter_rand.z));
-            x_i.radiance = emitter_sample_record.radiance;
-            x_i.p_hat = optix::GetLuminance(emitter_sample_record.radiance);
-            x_i.sample_type = 1;
-        }
+    //     }else{
+    //         auto &emitter = optix_launch_params.emitters.SelectOneEmiiter(x_i.emitter_rand.x);
+    //         optix::EmitterSampleRecord emitter_sample_record;
+    //         optix::LocalGeometry primary_local_hit;
+    //         primary_local_hit.position = position;
+    //         emitter.SampleDirect(emitter_sample_record, primary_local_hit, make_float2(x_i.emitter_rand.y,x_i.emitter_rand.z));
+    //         x_i.radiance = emitter_sample_record.radiance;
+    //         x_i.p_hat = optix::GetLuminance(emitter_sample_record.radiance);
+    //         x_i.sample_type = 1;
+    //     }
            
 
-        float w_i = x_i.p_hat * neighbor_reservoir.M * neighbor_reservoir.W;
-        reservoir.Update(x_i, w_i, random);
-        M += neighbor_reservoir.M - 1;  
-    }
-    reservoir.M = M;
+    //     float w_i = x_i.p_hat * neighbor_reservoir.M * neighbor_reservoir.W;
+    //     reservoir.Update(x_i, w_i, random);
+    //     M += neighbor_reservoir.M - 1;  
+    // }
+    // reservoir.M = M;
     optix_launch_params.final_reservoirs[pixel_index] = optix_launch_params.reservoirs[pixel_index];
-    reservoir.CalcW();
-    if (reservoir.W > 0.f) {
-        optix_launch_params.final_reservoirs[pixel_index].Combine(reservoir, random);
-    }
+    // reservoir.CalcW();
+    // if (reservoir.W > 0.f) {
+    //     optix_launch_params.final_reservoirs[pixel_index].Combine(reservoir, random);
+    // }
 
 }
 
