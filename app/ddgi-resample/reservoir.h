@@ -69,14 +69,23 @@ struct Reservoir {
     }
 
     CUDA_HOSTDEVICE void CalcW() noexcept {
-        W = (y.p_hat == 0.f || M == 0) ? 0.f : w_sum / (y.p_hat * M * p_sum); 
+        // W = (y.p_hat == 0.f || M == 0) ? 0.f : w_sum / (y.p_hat * p_sum); 
+        W = (y.p_hat == 0.f || M == 0) ? 0.f : w_sum / (y.p_hat * M);
+    }
+    CUDA_HOSTDEVICE void CalcMISW() noexcept {
+        W = (y.p_hat == 0.f || M == 0) ? 0.f : w_sum / (y.p_hat * p_sum); 
         // W = (y.p_hat == 0.f || M == 0) ? 0.f : w_sum / (y.p_hat * M);
     }
 
     CUDA_HOSTDEVICE void Combine(const Reservoir &other, Pupil::cuda::Random &random) noexcept {
-        Update(other.y, other.y.p_hat * other.W * other.M, 0, random);
+        //   w_mis * x_i.p_hat / x_i.p
+        // = w_mis * other.y.p_hat * other.W
+        // = other.y.p_hat / sum_phat * other.y.p_hat * other.W
+        // = other.y.p_hat * other.y.p_hat * x_i.W, sum_old_phat累加，之后再除，M倍的权重
+        Update(other.y, other.y.p_hat * other.y.p_hat * other.W * other.M, other.p_sum, random);
         // Update(other.y, other.y.p_hat * other.W * other.M, random);
         M += other.M - 1;
-        CalcW();
+        // CalcW();
+        CalcMISW();
     }
 };

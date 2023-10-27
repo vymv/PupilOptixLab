@@ -7,6 +7,7 @@
 #include "util/event.h"
 #include "system/gui/gui.h"
 #include "system/system.h"
+#include "../indirect/global.h"
 
 // 构建期通过CMake将.cu代码编译并嵌入到.c文件中，
 // 代码指令由char类型保存，只需要声明extern即可获取
@@ -37,16 +38,19 @@ ShadingPass::ShadingPass(std::string_view name) noexcept : Pass(name) {
 }
 
 void ShadingPass::OnRun() noexcept {
-    m_timer.Start();
-    {
-        auto buf_mngr = util::Singleton<BufferManager>::instance();
-        auto *frame_buffer = buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME);
 
-        m_optix_launch_params.frame_buffer.SetData(frame_buffer->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
-        m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width, m_optix_launch_params.config.frame.height);
-        m_optix_pass->Synchronize();
+    if (!is_pathtracer) {
+        m_timer.Start();
+        {
+            auto buf_mngr = util::Singleton<BufferManager>::instance();
+            auto *frame_buffer = buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME);
+
+            m_optix_launch_params.frame_buffer.SetData(frame_buffer->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
+            m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width, m_optix_launch_params.config.frame.height);
+            m_optix_pass->Synchronize();
+        }
+        m_timer.Stop();
     }
-    m_timer.Stop();
 }
 
 void ShadingPass::InitOptixPipeline() noexcept {

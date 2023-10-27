@@ -264,110 +264,114 @@ extern "C" __global__ void __raygen__main() {
     }
     optix_launch_params.reservoirs[pixel_index].Init();
     
+    if(optix_launch_params.directOn){
+        // 1. Generate candidate
+        // 1.1 Emissive surface
+        for(int i = 0; i < optix_launch_params.num_emission; i++){
 
-    // 1. Generate candidate
-    // 1.1 Emissive surface
-    for(int i = 0; i < optix_launch_params.num_emission; i++){
+            // Generate emitter candidate
 
-        // Generate emitter candidate
+            optix::EmitterSampleRecord emitter_sample_record;
+            emitter_sample_record.radiance = make_float3(0.f);
+            float r = 0;
+            float2 r2 = make_float2(0.f);
+            while(optix::GetLuminance(emitter_sample_record.radiance) < 1e-5f){
+                r = record.random.Next();
+                r2 = record.random.Next2();
+                auto &emitter = optix_launch_params.emitters.SelectOneEmiiter(r);
+                emitter.SampleDirect(emitter_sample_record, record.hit.geo, r2);
+            }
 
-        optix::EmitterSampleRecord emitter_sample_record;
-        emitter_sample_record.radiance = make_float3(0.f);
-        float r = 0;
-        float2 r2 = make_float2(0.f);
-        while(optix::GetLuminance(emitter_sample_record.radiance) < 1e-5f){
-            r = record.random.Next();
-            r2 = record.random.Next2();
-            auto &emitter = optix_launch_params.emitters.SelectOneEmiiter(r);
-            emitter.SampleDirect(emitter_sample_record, record.hit.geo, r2);
+            // Update reservior
+            Reservoir::Sample x_i;
+            x_i.pos = emitter_sample_record.pos;
+            x_i.normal = emitter_sample_record.normal;
+            x_i.emitter_rand = make_float3(r, r2);
+            x_i.radiance = emitter_sample_record.radiance;
+            x_i.sample_type = 0;
+            x_i.p_hat = optix::GetLuminance(emitter_sample_record.radiance);
+            float w_i = 0.0;
+            
+            if (emitter_sample_record.pdf > 0.f) {
+                // // p
+                // w_i = 1.0 / emitter_sample_record.pdf;
+                // // p_hat  Le + Lddgi
+                // w_i = w_i * x_i.p_hat;
+                w_i = x_i.p_hat;
+            }
+
+            optix_launch_params.reservoirs[pixel_index].Update(x_i, w_i, emitter_sample_record.pdf, record.random);
+            // optix_launch_params.reservoirs[pixel_index].Update(x_i, w_i, record.random);
         }
-
-        // Update reservior
-        Reservoir::Sample x_i;
-        x_i.pos = emitter_sample_record.pos;
-        x_i.normal = emitter_sample_record.normal;
-        x_i.emitter_rand = make_float3(r, r2);
-        x_i.radiance = emitter_sample_record.radiance;
-        x_i.sample_type = 0;
-        x_i.p_hat = optix::GetLuminance(emitter_sample_record.radiance);
-        float w_i = 0.0;
-        
-        if (emitter_sample_record.pdf > 0.f) {
-            // // p
-            // w_i = 1.0 / emitter_sample_record.pdf;
-            // // p_hat  Le + Lddgi
-            // w_i = w_i * x_i.p_hat;
-            w_i = x_i.p_hat;
-        }
-
-        optix_launch_params.reservoirs[pixel_index].Update(x_i, w_i, emitter_sample_record.pdf, record.random);
-        // optix_launch_params.reservoirs[pixel_index].Update(x_i, w_i, record.random);
     }
 
-    // // 1.2 Secondary vertex (bsdf sampling)
-    // for(int i = 0; i < optix_launch_params.num_secondary; i++)
-    // {
-    //     // Generate secondary candidate
-    //     float3 wo = optix::ToLocal(-ray_direction, primary_local_hit.geo.normal);
-    //     optix::BsdfSamplingRecord bsdf_sample_record;
-    //     bsdf_sample_record.wo = optix::ToLocal(-ray_direction, primary_local_hit.geo.normal);
-    //     bsdf_sample_record.sampler = &record.random;
-    //     record.hit.bsdf.Sample(bsdf_sample_record);
+    if(optix_launch_params.indirectOn){
+        // 1.2 Secondary vertex (bsdf sampling)
+        for(int i = 0; i < optix_launch_params.num_secondary; i++)
+        {
+            // Generate secondary candidate
+            float3 wo = optix::ToLocal(-ray_direction, primary_local_hit.geo.normal);
+            optix::BsdfSamplingRecord bsdf_sample_record;
+            bsdf_sample_record.wo = optix::ToLocal(-ray_direction, primary_local_hit.geo.normal);
+            bsdf_sample_record.sampler = &record.random;
+            record.hit.bsdf.Sample(bsdf_sample_record);
 
-    //     float3 ray_origin = record.hit.geo.position;
-    //     ray_direction = optix::ToWorld(bsdf_sample_record.wi, primary_local_hit.geo.normal);
-    //     record.miss = false;
+            float3 ray_origin = record.hit.geo.position;
+            ray_direction = optix::ToWorld(bsdf_sample_record.wi, primary_local_hit.geo.normal);
+            record.miss = false;
 
-    //     optixTrace(optix_launch_params.handle,
-    //                 ray_origin, ray_direction,
-    //                 0.001f, 1e16f, 0.f,
-    //                 255, OPTIX_RAY_FLAG_NONE,
-    //                 0, 2, 0,
-    //                 u0, u1);
+            optixTrace(optix_launch_params.handle,
+                        ray_origin, ray_direction,
+                        0.001f, 1e16f, 0.f,
+                        255, OPTIX_RAY_FLAG_NONE,
+                        0, 2, 0,
+                        u0, u1);
 
-    //     // Update reservior
-    //     Reservoir::Sample x_i;
-    //     float w_i = 0.0f;
-    //     if (record.hit.emitter_index < 0 && !record.miss) {
-    //         float3 Lddgi = ComputeIndirect(normalize(primary_local_hit.geo.position - record.hit.geo.position),
-    //                                         record.hit.geo.position, camera_pos,
-    //                                         optix_launch_params.probeirradiance.GetDataPtr(),
-    //                                         optix_launch_params.probedepth.GetDataPtr(),
-    //                                         optix_launch_params.probeStartPosition,
-    //                                         optix_launch_params.probeStep,
-    //                                         optix_launch_params.probeCount,
-    //                                         optix_launch_params.probeirradiancesize,
-    //                                         optix_launch_params.probeSideLength,
-    //                                         1.0f);
-            
-    //         // bsdf
-    //         // optix::BsdfSamplingRecord eval_record;
-    //         // eval_record.wi = optix::ToLocal(record.hit.geo.normal, record.hit.geo.normal);
-    //         // eval_record.wo = optix::ToLocal(record.hit.geo.normal, record.hit.geo.normal);
-    //         // eval_record.sampler = &record.random;
-    //         // record.hit.bsdf.Eval(eval_record);
-    //         // float3 f = eval_record.f;
-    //         Lddgi = Lddgi * record.albedo * M_1_PIf;
+            // Update reservior
+            Reservoir::Sample x_i;
+            float w_i = 0.0f;
+            if (record.hit.emitter_index < 0 && !record.miss) {
+                float3 Lddgi = ComputeIndirect(normalize(primary_local_hit.geo.position - record.hit.geo.position),
+                                                record.hit.geo.position, camera_pos,
+                                                optix_launch_params.probeirradiance.GetDataPtr(),
+                                                optix_launch_params.probedepth.GetDataPtr(),
+                                                optix_launch_params.probeStartPosition,
+                                                optix_launch_params.probeStep,
+                                                optix_launch_params.probeCount,
+                                                optix_launch_params.probeirradiancesize,
+                                                optix_launch_params.probeSideLength,
+                                                1.0f);
+                
+                // bsdf
+                // optix::BsdfSamplingRecord eval_record;
+                // eval_record.wi = optix::ToLocal(record.hit.geo.normal, record.hit.geo.normal);
+                // eval_record.wo = optix::ToLocal(record.hit.geo.normal, record.hit.geo.normal);
+                // eval_record.sampler = &record.random;
+                // record.hit.bsdf.Eval(eval_record);
+                // float3 f = eval_record.f;
+                Lddgi = Lddgi * record.albedo * M_1_PIf;
 
-    //         x_i.pos = record.hit.geo.position;
-    //         x_i.normal = record.hit.geo.normal;
-    //         x_i.albedo = record.albedo;
-    //         x_i.emitter_rand = make_float3(-1.0f);
-    //         x_i.radiance = Lddgi;
-    //         x_i.p_hat = optix::GetLuminance(Lddgi);
-    //         x_i.sample_type = 0;
+                x_i.pos = record.hit.geo.position;
+                x_i.normal = record.hit.geo.normal;
+                x_i.albedo = record.albedo;
+                x_i.emitter_rand = make_float3(-1.0f);
+                x_i.radiance = Lddgi;
+                x_i.p_hat = optix::GetLuminance(Lddgi);
+                x_i.sample_type = 1;
 
-    //         // p
-    //         if(bsdf_sample_record.pdf > 0.f){
-    //             w_i = 1.0 / bsdf_sample_record.pdf;
-    //         }
-    //         // p_hat  Le + Lddgi 
-    //         w_i = w_i * x_i.p_hat;
-    //     }
-    //     optix_launch_params.reservoirs[pixel_index].Update(x_i, w_i, record.random);
-    // }
+                // p
+                if(bsdf_sample_record.pdf > 0.f){
+                    w_i = x_i.p_hat;
+                }
+                // // p_hat  Le + Lddgi 
+                // w_i = w_i * x_i.p_hat;
+            }
+            optix_launch_params.reservoirs[pixel_index].Update(x_i, w_i, bsdf_sample_record.pdf, record.random);
+        }
+    }
 
-    optix_launch_params.reservoirs[pixel_index].CalcW();
+
+    optix_launch_params.reservoirs[pixel_index].CalcMISW();
 
     // // 2. Spatial reuse
     // Reservoir reservoir;

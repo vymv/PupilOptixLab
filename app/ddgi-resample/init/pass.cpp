@@ -39,39 +39,41 @@ RenderPass::RenderPass(std::string_view name) noexcept : Pass(name) {
 }
 
 void RenderPass::OnRun() noexcept {
-    m_timer.Start();
-    {
-        // 由于ui线程和渲染线程分离，所以在渲染前先检查是否通过ui修改了渲染参数
-        if (m_dirty) {
-            m_optix_launch_params.camera.SetData(m_world_camera->GetCudaMemory());
-            m_optix_launch_params.num_emission = m_num_emission;
-            m_optix_launch_params.num_secondary = m_num_secondary;
-            m_optix_launch_params.directOn = m_direct_on;
-            m_optix_launch_params.indirectOn = m_indirect_on;
-            m_optix_launch_params.random_seed = 0;
-            m_optix_launch_params.handle = m_world->GetIASHandle(2, true);
-            m_dirty = false;
+    if (!is_pathtracer) {
+        m_timer.Start();
+        {
+            // 由于ui线程和渲染线程分离，所以在渲染前先检查是否通过ui修改了渲染参数
+            if (m_dirty) {
+                m_optix_launch_params.camera.SetData(m_world_camera->GetCudaMemory());
+                m_optix_launch_params.num_emission = m_num_emission;
+                m_optix_launch_params.num_secondary = m_num_secondary;
+                m_optix_launch_params.directOn = m_direct_on;
+                m_optix_launch_params.indirectOn = m_indirect_on;
+                m_optix_launch_params.random_seed = 0;
+                m_optix_launch_params.handle = m_world->GetIASHandle(2, true);
+                m_dirty = false;
+            }
+
+            auto buf_mngr = util::Singleton<BufferManager>::instance();
+            auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
+            m_optix_launch_params.probeirradiance.SetData(probeirradiancebuffer->cuda_ptr,
+                                                          m_probeirradiancesize.w * m_probeirradiancesize.h);
+            auto probedepthbuffer = buf_mngr->GetBuffer("ddgi_probedepth");
+            m_optix_launch_params.probedepth.SetData(probedepthbuffer->cuda_ptr,
+                                                     m_probeirradiancesize.w * m_probeirradiancesize.h);
+
+            auto *framebuffer = buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME);
+            m_optix_launch_params.frame_buffer.SetData(framebuffer->cuda_ptr, m_output_pixel_num);
+            m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
+                              m_optix_launch_params.config.frame.height);
+            m_optix_pass->Synchronize();// 等待optix渲染结束
+
+            ++m_optix_launch_params.random_seed;
         }
 
-        auto buf_mngr = util::Singleton<BufferManager>::instance();
-        auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
-        m_optix_launch_params.probeirradiance.SetData(probeirradiancebuffer->cuda_ptr,
-                                                      m_probeirradiancesize.w * m_probeirradiancesize.h);
-        auto probedepthbuffer = buf_mngr->GetBuffer("ddgi_probedepth");
-        m_optix_launch_params.probedepth.SetData(probedepthbuffer->cuda_ptr,
-                                                 m_probeirradiancesize.w * m_probeirradiancesize.h);
-
-        auto *framebuffer = buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME);
-        m_optix_launch_params.frame_buffer.SetData(framebuffer->cuda_ptr, m_output_pixel_num);
-        m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
-                          m_optix_launch_params.config.frame.height);
-        m_optix_pass->Synchronize();// 等待optix渲染结束
-
-        ++m_optix_launch_params.random_seed;
+        m_timer.Stop();
+        m_time_cnt = m_timer.ElapsedMilliseconds();
     }
-
-    m_timer.Stop();
-    m_time_cnt = m_timer.ElapsedMilliseconds();
 }
 
 void RenderPass::InitOptixPipeline() noexcept {

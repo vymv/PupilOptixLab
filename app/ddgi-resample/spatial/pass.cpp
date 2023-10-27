@@ -36,40 +36,43 @@ SpatialPass::SpatialPass(std::string_view name) noexcept : Pass(name) {
 }
 
 void SpatialPass::OnRun() noexcept {
-    m_timer.Start();
-    {
-        if (m_on) {
-            m_optix_launch_params.spatial_radius = m_spatial_radius;
-            m_optix_launch_params.camera.SetData(m_world_camera->GetCudaMemory());
 
-            auto buf_mngr = util::Singleton<BufferManager>::instance();
+    if (!is_pathtracer) {
+        m_timer.Start();
+        {
+            if (m_on) {
+                m_optix_launch_params.spatial_radius = m_spatial_radius;
+                m_optix_launch_params.camera.SetData(m_world_camera->GetCudaMemory());
 
-            auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
-            m_optix_launch_params.probeirradiance.SetData(probeirradiancebuffer->cuda_ptr,
-                                                          m_probeirradiancesize.w * m_probeirradiancesize.h);
-            auto probedepthbuffer = buf_mngr->GetBuffer("ddgi_probedepth");
-            m_optix_launch_params.probedepth.SetData(probedepthbuffer->cuda_ptr,
-                                                     m_probeirradiancesize.w * m_probeirradiancesize.h);
+                auto buf_mngr = util::Singleton<BufferManager>::instance();
 
-            m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width, m_optix_launch_params.config.frame.height);
-            m_optix_pass->Synchronize();
-            m_optix_launch_params.random_seed += 3;
-        } else {
-            // just copy
-            auto buf_mngr = util::Singleton<Pupil::BufferManager>::instance();
-            auto reservoir_buf = buf_mngr->GetBuffer("screen reservoir");
-            auto final_reservoir_buf = buf_mngr->GetBuffer("final screen reservoir");
+                auto probeirradiancebuffer = buf_mngr->GetBuffer("ddgi_probeirradiance");
+                m_optix_launch_params.probeirradiance.SetData(probeirradiancebuffer->cuda_ptr,
+                                                              m_probeirradiancesize.w * m_probeirradiancesize.h);
+                auto probedepthbuffer = buf_mngr->GetBuffer("ddgi_probedepth");
+                m_optix_launch_params.probedepth.SetData(probedepthbuffer->cuda_ptr,
+                                                         m_probeirradiancesize.w * m_probeirradiancesize.h);
 
-            CUDA_CHECK(cudaMemcpyAsync(
-                reinterpret_cast<void *>(final_reservoir_buf->cuda_ptr),
-                reinterpret_cast<void *>(reservoir_buf->cuda_ptr),
-                m_optix_launch_params.config.frame.height * m_optix_launch_params.config.frame.width * sizeof(Reservoir),
-                cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream()));
+                m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width, m_optix_launch_params.config.frame.height);
+                m_optix_pass->Synchronize();
+                m_optix_launch_params.random_seed += 3;
+            } else {
+                // just copy
+                auto buf_mngr = util::Singleton<Pupil::BufferManager>::instance();
+                auto reservoir_buf = buf_mngr->GetBuffer("screen reservoir");
+                auto final_reservoir_buf = buf_mngr->GetBuffer("final screen reservoir");
 
-            CUDA_CHECK(cudaStreamSynchronize(m_stream->GetStream()));
+                CUDA_CHECK(cudaMemcpyAsync(
+                    reinterpret_cast<void *>(final_reservoir_buf->cuda_ptr),
+                    reinterpret_cast<void *>(reservoir_buf->cuda_ptr),
+                    m_optix_launch_params.config.frame.height * m_optix_launch_params.config.frame.width * sizeof(Reservoir),
+                    cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream()));
+
+                CUDA_CHECK(cudaStreamSynchronize(m_stream->GetStream()));
+            }
         }
+        m_timer.Stop();
     }
-    m_timer.Stop();
 }
 
 void SpatialPass::InitOptixPipeline() noexcept {

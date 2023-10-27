@@ -55,8 +55,11 @@ extern "C" __global__ void __raygen__main() {
         }
         // if (reservoir.y.sample_type == 0)
         //     result = make_float3(0,1,0);
-        // else
+        // else if (reservoir.y.sample_type == 1)
         //     result = make_float3(1,0,0);
+        // else
+        //     result = make_float3(0,0,1);
+        
     }
 
     optix_launch_params.frame_buffer[pixel_index] = make_float4(result, 1.f);

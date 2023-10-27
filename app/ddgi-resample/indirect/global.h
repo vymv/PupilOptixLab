@@ -19,5 +19,6 @@ extern usize m_probeirradiancesize;
 extern usize m_raygbuffersize;
 extern int m_show_type;
 extern bool show_type_changed;
+extern bool is_pathtracer;
 
 }// namespace Pupil::ddgi
