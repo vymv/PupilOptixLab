@@ -10,8 +10,9 @@
 #include "system/gui/gui.h"
 #include "world/world.h"
 #include "world/render_object.h"
+#include "../indirect/global.h"
 
-extern "C" char embedded_ptx_code[];
+extern "C" char pathtracer_pass_embedded_ptx_code[];
 
 namespace Pupil {
 extern uint32_t g_window_w;
@@ -25,7 +26,7 @@ bool m_accumulated_flag;
 Pupil::world::World *m_world = nullptr;
 }// namespace
 
-namespace Pupil::pt {
+namespace Pupil::ddgi::pt {
 PTPass::PTPass(std::string_view name) noexcept
     : Pass(name) {
     auto optix_ctx = util::Singleton<optix::Context>::instance();
@@ -37,30 +38,34 @@ PTPass::PTPass(std::string_view name) noexcept
 }
 
 void PTPass::OnRun() noexcept {
-    if (m_dirty) {
-        m_optix_launch_params.camera.SetData(m_world_camera->GetCudaMemory());
-        m_optix_launch_params.config.max_depth = m_max_depth;
-        m_optix_launch_params.config.accumulated_flag = m_accumulated_flag;
-        m_optix_launch_params.sample_cnt = 0;
-        m_optix_launch_params.random_seed = 0;
-        m_optix_launch_params.handle = m_world->GetIASHandle(2, true);
-        m_optix_launch_params.emitters = m_world->emitters->GetEmitterGroup();
-        m_dirty = false;
+
+    if (Pupil::ddgi::is_pathtracer) {
+
+        if (m_dirty) {
+            m_optix_launch_params.camera.SetData(m_world_camera->GetCudaMemory());
+            m_optix_launch_params.config.max_depth = m_max_depth;
+            m_optix_launch_params.config.accumulated_flag = m_accumulated_flag;
+            m_optix_launch_params.sample_cnt = 0;
+            m_optix_launch_params.random_seed = 0;
+            m_optix_launch_params.handle = m_world->GetIASHandle(2, true);
+            m_optix_launch_params.emitters = m_world->emitters->GetEmitterGroup();
+            m_dirty = false;
+        }
+
+        m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
+                          m_optix_launch_params.config.frame.height);
+        m_optix_pass->Synchronize();
+
+        m_optix_launch_params.sample_cnt += m_optix_launch_params.config.accumulated_flag;
+        ++m_optix_launch_params.random_seed;
     }
-
-    m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
-                      m_optix_launch_params.config.frame.height);
-    m_optix_pass->Synchronize();
-
-    m_optix_launch_params.sample_cnt += m_optix_launch_params.config.accumulated_flag;
-    ++m_optix_launch_params.random_seed;
 }
 
 void PTPass::InitOptixPipeline() noexcept {
     auto module_mngr = util::Singleton<optix::ModuleManager>::instance();
 
     auto sphere_module = module_mngr->GetModule(optix::EModuleBuiltinType::SpherePrimitive);
-    auto pt_module = module_mngr->GetModule(embedded_ptx_code);
+    auto pt_module = module_mngr->GetModule(pathtracer_pass_embedded_ptx_code);
 
     optix::PipelineDesc pipeline_desc;
     {
@@ -109,7 +114,8 @@ void PTPass::SetScene(world::World *world) noexcept {
 
     m_optix_launch_params.config.frame.width = world->scene->sensor.film.w;
     m_optix_launch_params.config.frame.height = world->scene->sensor.film.h;
-    m_optix_launch_params.config.max_depth = world->scene->integrator.max_depth;
+    // m_optix_launch_params.config.max_depth = world->scene->integrator.max_depth;
+    m_optix_launch_params.config.max_depth = 2;
     m_optix_launch_params.config.accumulated_flag = false;
 
     m_max_depth = m_optix_launch_params.config.max_depth;
@@ -223,7 +229,11 @@ void PTPass::BindingEventCallback() noexcept {
 }
 
 void PTPass::Inspector() noexcept {
-    Pass::Inspector();
+    if (ImGui::Checkbox("is_pathtracer", &is_pathtracer)) {
+        m_dirty = true;
+    }
+
+    // Pass::Inspector();
     ImGui::Text("sample count: %d", m_optix_launch_params.sample_cnt + 1);
     ImGui::InputInt("max trace depth", &m_max_depth);
     m_max_depth = clamp(m_max_depth, 1, 128);
@@ -235,4 +245,4 @@ void PTPass::Inspector() noexcept {
         m_dirty = true;
     }
 }
-}// namespace Pupil::pt
+}// namespace Pupil::ddgi::pt

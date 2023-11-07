@@ -4,3 +4,4 @@ set(pupil_application app)
 
 add_subdirectory(ddgi)
 add_subdirectory(ddgi-resample)
+add_subdirectory(ddgi-restir)

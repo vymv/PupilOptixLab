@@ -10,7 +10,7 @@
 using namespace Pupil;
 
 extern "C" {
-__constant__ pt::OptixLaunchParams optix_launch_params;
+__constant__ ddgi::pt::OptixLaunchParams optix_launch_params;
 }
 
 struct HitInfo {
@@ -102,18 +102,15 @@ extern "C" __global__ void __raygen__main() {
 
     while (!record.done) {
         ++depth;
-
-        // max terminate
         if (depth >= optix_launch_params.config.max_depth)
             break;
 
-        // russian roulette terminate
         float rr = depth > 2 ? 0.95 : 1.0;
         if (record.random.Next() > rr)
             break;
         record.throughput /= rr;
 
-        // light sampling 光源对该点的贡献，wo已知，sample wi，按bsdf和按光源，给的pdf不同
+        // direct light sampling
         {
             auto &emitter = optix_launch_params.emitters.SelectOneEmiiter(record.random.Next());
             optix::EmitterSampleRecord emitter_sample_record;
@@ -122,14 +119,12 @@ extern "C" __global__ void __raygen__main() {
             bool occluded =
                 optix::Emitter::TraceShadowRay(
                     optix_launch_params.handle,
-                    local_hit.geo.position, emitter_sample_record.wi, // 朝光源的方向
+                    local_hit.geo.position, emitter_sample_record.wi,
                     0.001f, emitter_sample_record.distance - 0.001f);
-
             if (!occluded) {
-                // 计算按bsdf采样的pdf
                 optix::BsdfSamplingRecord eval_record;
-                eval_record.wi = optix::ToLocal(emitter_sample_record.wi, local_hit.geo.normal); // 光源入射方向
-                eval_record.wo = optix::ToLocal(-ray_direction, local_hit.geo.normal); // 朝着上一个顶点（相机）的方向
+                eval_record.wi = optix::ToLocal(emitter_sample_record.wi, local_hit.geo.normal);
+                eval_record.wo = optix::ToLocal(-ray_direction, local_hit.geo.normal);
                 eval_record.sampler = &record.random;
                 record.hit.bsdf.Eval(eval_record);
                 float3 f = eval_record.f;
@@ -137,7 +132,7 @@ extern "C" __global__ void __raygen__main() {
                 if (!optix::IsZero(f * emitter_sample_record.pdf)) {
                     float NoL = dot(local_hit.geo.normal, emitter_sample_record.wi);
                     if (NoL > 0.f) {
-                        float mis = emitter_sample_record.is_delta ? 1.f : optix::MISWeight(emitter_sample_record.pdf * emitter.select_probability, pdf); // 光源采样 混合 bsdf采样
+                        float mis = emitter_sample_record.is_delta ? 1.f : optix::MISWeight(emitter_sample_record.pdf, pdf);
                         emitter_sample_record.pdf *= emitter.select_probability;
                         record.radiance += record.throughput * emitter_sample_record.radiance * f * NoL * mis / emitter_sample_record.pdf;
                     }
@@ -160,15 +155,13 @@ extern "C" __global__ void __raygen__main() {
             ray_origin = record.hit.geo.position;
             ray_direction = optix::ToWorld(bsdf_sample_record.wi, local_hit.geo.normal);
 
-            // 决定每一轮循环的新顶点
             optixTrace(optix_launch_params.handle,
                        ray_origin, ray_direction,
                        0.001f, 1e16f, 0.f,
                        255, OPTIX_RAY_FLAG_NONE,
                        0, 2, 0,
                        u0, u1);
-                       
-            // miss了
+
             if (record.done) {
                 float mis = optix::MISWeight(bsdf_sample_record.pdf, record.env_pdf);
                 record.env_radiance *= record.throughput * mis;
@@ -176,7 +169,6 @@ extern "C" __global__ void __raygen__main() {
             }
 
             local_hit = record.hit;
-            // 打到emissive 表面
             if (record.hit.emitter_index >= 0) {
                 auto &emitter = optix_launch_params.emitters.areas[record.hit.emitter_index];
                 optix::EmitEvalRecord emit_record;
@@ -187,18 +179,17 @@ extern "C" __global__ void __raygen__main() {
                                     optix::MISWeight(bsdf_sample_record.pdf, emit_record.pdf * emitter.select_probability);
                     record.radiance += record.throughput * emit_record.radiance * mis;
                 }
-                break;
             }
         }
     }
     record.radiance += record.env_radiance;
 
-    // if (optix_launch_params.config.accumulated_flag && optix_launch_params.sample_cnt > 0) {
-    //     const float t = 1.f / (optix_launch_params.sample_cnt + 1.f);
-    //     const float3 pre = make_float3(optix_launch_params.accum_buffer[pixel_index]);
-    //     record.radiance = lerp(pre, record.radiance, t);
-    // }
-    // optix_launch_params.accum_buffer[pixel_index] = make_float4(record.radiance, 1.f);
+    if (optix_launch_params.config.accumulated_flag && optix_launch_params.sample_cnt > 0) {
+        const float t = 1.f / (optix_launch_params.sample_cnt + 1.f);
+        const float3 pre = make_float3(optix_launch_params.accum_buffer[pixel_index]);
+        record.radiance = lerp(pre, record.radiance, t);
+    }
+    optix_launch_params.accum_buffer[pixel_index] = make_float4(record.radiance, 1.f);
     optix_launch_params.frame_buffer[pixel_index] = make_float4(record.radiance, 1.f);
 }
 
@@ -223,7 +214,7 @@ extern "C" __global__ void __miss__shadow() {
     // optixSetPayload_0(0u);
 }
 extern "C" __global__ void __closesthit__default() {
-    const pt::HitGroupData *sbt_data = (pt::HitGroupData *)optixGetSbtDataPointer();
+    const ddgi::pt::HitGroupData *sbt_data = (ddgi::pt::HitGroupData *)optixGetSbtDataPointer();
     auto record = optix::GetPRD<PathPayloadRecord>();
 
     const auto ray_dir = optixGetWorldRayDirection();
