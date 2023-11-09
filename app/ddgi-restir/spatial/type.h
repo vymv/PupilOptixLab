@@ -27,6 +27,7 @@ struct OptixLaunchParams {
     cuda::RWArrayView<float4> position_buffer;
     cuda::RWArrayView<float4> normal_buffer;
     cuda::RWArrayView<float4> albedo_buffer;
+    cuda::ConstArrayView<optix::material::Material::LocalBsdf> bsdf_buffer;
 
     struct {
         float3 pos;

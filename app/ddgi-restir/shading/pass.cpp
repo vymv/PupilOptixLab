@@ -51,9 +51,8 @@ void ShadingPass::OnRun() noexcept {
             m_optix_launch_params.energyConservation = m_energyconservation;
 
             auto buf_mngr = util::Singleton<BufferManager>::instance();
-            auto *frame_buffer = buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME);
+            // auto *frame_buffer = buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME);
 
-            m_optix_launch_params.frame_buffer.SetData(frame_buffer->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
             m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width, m_optix_launch_params.config.frame.height);
             m_optix_pass->Synchronize();
         }
@@ -114,6 +113,26 @@ void ShadingPass::SetScene(world::World *world) noexcept {
 
     auto buf_mngr = util::Singleton<BufferManager>::instance();
 
+    BufferDesc direct_buf_desc = {
+        .name = "direct buffer",
+        .flag = EBufferFlag::AllowDisplay,
+        .width = m_optix_launch_params.config.frame.width,
+        .height = m_optix_launch_params.config.frame.height,
+        .stride_in_byte = sizeof(float) * 4
+    };
+    auto direct_buf = buf_mngr->AllocBuffer(direct_buf_desc);
+    m_optix_launch_params.direct_buffer.SetData(direct_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
+
+    BufferDesc indirect_buf_desc = {
+        .name = "indirect buffer",
+        .flag = EBufferFlag::AllowDisplay,
+        .width = m_optix_launch_params.config.frame.width,
+        .height = m_optix_launch_params.config.frame.height,
+        .stride_in_byte = sizeof(float) * 4
+    };
+    auto indirect_buf = buf_mngr->AllocBuffer(indirect_buf_desc);
+    m_optix_launch_params.indirect_buffer.SetData(indirect_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
+
     auto reservoir_buf = buf_mngr->GetBuffer("final screen reservoir");
     m_optix_launch_params.final_reservoirs.SetData(reservoir_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
     auto albedo_buf = buf_mngr->GetBuffer("gbuffer albedo");
@@ -122,8 +141,6 @@ void ShadingPass::SetScene(world::World *world) noexcept {
     m_optix_launch_params.position_buffer.SetData(position_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
     auto normal_buf = buf_mngr->GetBuffer("gbuffer normal");
     m_optix_launch_params.normal_buffer.SetData(normal_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
-    m_optix_launch_params.frame_buffer.SetData(0, 0);
-    m_optix_launch_params.handle = world->GetIASHandle(2, true);
 
     auto probeirradiance_buf = buf_mngr->GetBuffer("ddgi_probeirradiance");
     m_optix_launch_params.probeirradiance.SetData(probeirradiance_buf->cuda_ptr, m_probeirradiancesize.w * m_probeirradiancesize.h);

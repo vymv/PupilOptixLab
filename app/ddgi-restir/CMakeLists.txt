@@ -22,6 +22,7 @@ cuda_compile_and_embed(ddgi_spatial_pass_embedded_ptx_code spatial/spatial_reuse
 cuda_compile_and_embed(ddgi_temporal_pass_embedded_ptx_code temporal/temporal_reuse.cu)
 cuda_compile_and_embed(ddgi_shadow_pass_embedded_ptx_code shadow/shadow.cu)
 cuda_compile_and_embed(pathtracer_pass_embedded_ptx_code path_tracer/pathtracer.cu)
+cuda_compile_and_embed(ddgi_merge_pass_embedded_ptx_code merge/merge.cu)
 
 
 file(GLOB_RECURSE ALL_INCLUDE CONFIGURE_DEPENDS "*.h")
@@ -35,6 +36,7 @@ add_executable(${target_name}
     ${ddgi_spatial_pass_embedded_ptx_code}
     ${ddgi_temporal_pass_embedded_ptx_code}
     ${ddgi_shadow_pass_embedded_ptx_code}
+    ${ddgi_merge_pass_embedded_ptx_code}
     ${pathtracer_pass_embedded_ptx_code}
     ${ALL_INCLUDE}
     ${ALL_SOURCES}

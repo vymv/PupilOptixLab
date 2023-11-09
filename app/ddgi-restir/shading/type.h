@@ -20,12 +20,12 @@ struct OptixLaunchParams {
         } frame;
     } config;
 
-    OptixTraversableHandle handle;
-    cuda::RWArrayView<Reservoir> final_reservoirs;
-    cuda::RWArrayView<float4> frame_buffer;
+    cuda::RWArrayView<float4> direct_buffer;
+    cuda::RWArrayView<float4> indirect_buffer;
     cuda::ConstArrayView<float4> albedo_buffer;
     cuda::ConstArrayView<float4> position_buffer;
     cuda::ConstArrayView<float4> normal_buffer;
+    cuda::ConstArrayView<Reservoir> final_reservoirs;
 
     cuda::ConstArrayView<float4> probeirradiance;
     cuda::ConstArrayView<float4> probedepth;

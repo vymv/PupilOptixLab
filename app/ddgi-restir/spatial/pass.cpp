@@ -118,6 +118,9 @@ void SpatialPass::SetScene(world::World *world) noexcept {
     auto albedo_buf = buf_mngr->GetBuffer("gbuffer albedo");
     m_optix_launch_params.albedo_buffer.SetData(albedo_buf->cuda_ptr, m_output_pixel_num);
 
+    auto bsdf_buf = buf_mngr->GetBuffer("gbuffer bsdf");
+    m_optix_launch_params.bsdf_buffer.SetData(bsdf_buf->cuda_ptr, m_output_pixel_num);
+
     m_optix_launch_params.random_seed = 2;
     m_optix_launch_params.emitters = world->emitters->GetEmitterGroup();
     m_spatial_radius = 30;

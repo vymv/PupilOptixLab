@@ -160,6 +160,16 @@ void RenderPass::SetScene(world::World *world) noexcept {
     auto albedo_buf = buf_mngr->AllocBuffer(albedo_buf_desc);
     m_optix_launch_params.albedo_buffer.SetData(albedo_buf->cuda_ptr, m_output_pixel_num);
 
+    BufferDesc bsdf_buf_desc = {
+        .name = "gbuffer bsdf",
+        .flag = EBufferFlag::None,
+        .width = m_optix_launch_params.config.frame.width,
+        .height = m_optix_launch_params.config.frame.height,
+        .stride_in_byte = sizeof(optix::material::Material::LocalBsdf)
+    };
+    auto bsdf_buf = buf_mngr->AllocBuffer(bsdf_buf_desc);
+    m_optix_launch_params.bsdf_buffer.SetData(bsdf_buf->cuda_ptr, m_output_pixel_num);
+
     BufferDesc normal_buf_desc = {
         .name = "gbuffer normal",
         .flag = EBufferFlag::AllowDisplay,

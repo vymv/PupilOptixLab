@@ -128,7 +128,7 @@ void PTPass::SetScene(world::World *world) noexcept {
                          m_optix_launch_params.config.frame.height;
     auto buf_mngr = util::Singleton<BufferManager>::instance();
     {
-        m_optix_launch_params.frame_buffer.SetData(buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME)->cuda_ptr, m_output_pixel_num);
+        // m_optix_launch_params.frame_buffer.SetData(buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME)->cuda_ptr, m_output_pixel_num);
 
         BufferDesc desc{
             .name = "pt accum buffer",
@@ -139,13 +139,35 @@ void PTPass::SetScene(world::World *world) noexcept {
         };
         m_optix_launch_params.accum_buffer.SetData(buf_mngr->AllocBuffer(desc)->cuda_ptr, m_output_pixel_num);
 
-        desc.name = "albedo";
-        desc.flag = EBufferFlag::AllowDisplay;
-        desc.stride_in_byte = sizeof(float3);
-        m_optix_launch_params.albedo_buffer.SetData(buf_mngr->AllocBuffer(desc)->cuda_ptr, m_output_pixel_num);
+        BufferDesc albedo_buf_desc = {
+            .name = "albedo",
+            .flag = EBufferFlag::AllowDisplay,
+            .width = m_optix_launch_params.config.frame.width,
+            .height = m_optix_launch_params.config.frame.height,
+            .stride_in_byte = sizeof(float) * 3
+        };
+        auto albedo_buf = buf_mngr->AllocBuffer(albedo_buf_desc);
+        m_optix_launch_params.albedo_buffer.SetData(albedo_buf->cuda_ptr, m_output_pixel_num);
 
-        desc.name = "normal";
-        m_optix_launch_params.normal_buffer.SetData(buf_mngr->AllocBuffer(desc)->cuda_ptr, m_output_pixel_num);
+        BufferDesc normal_buf_desc = {
+            .name = "normal",
+            .flag = EBufferFlag::AllowDisplay,
+            .width = m_optix_launch_params.config.frame.width,
+            .height = m_optix_launch_params.config.frame.height,
+            .stride_in_byte = sizeof(float) * 3
+        };
+        auto normal_buf = buf_mngr->AllocBuffer(normal_buf_desc);
+        m_optix_launch_params.normal_buffer.SetData(normal_buf->cuda_ptr, m_output_pixel_num);
+
+        BufferDesc undenoise_buf_desc = {
+            .name = "undenoised buffer",
+            .flag = EBufferFlag::AllowDisplay,
+            .width = m_optix_launch_params.config.frame.width,
+            .height = m_optix_launch_params.config.frame.height,
+            .stride_in_byte = sizeof(float) * 4
+        };
+        auto undenoise_buf = buf_mngr->AllocBuffer(undenoise_buf_desc);
+        m_optix_launch_params.output_buffer.SetData(undenoise_buf->cuda_ptr, m_output_pixel_num);
 
         desc.name = "test";
         desc.stride_in_byte = sizeof(float);

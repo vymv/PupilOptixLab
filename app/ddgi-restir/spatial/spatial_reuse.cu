@@ -72,6 +72,16 @@ extern "C" __global__ void __raygen__main() {
         if (wi.z > 0.f && wo.z > 0.f) {
             f = albedo * M_1_PIf;
         }
+        optix::material::Material::LocalBsdf bsdf = optix_launch_params.bsdf_buffer[pixel_index];
+        if(bsdf.type == EMatType::Unknown){
+            optix::BsdfSamplingRecord bsdf_sample_record;
+            bsdf_sample_record.wo = wo;
+            bsdf_sample_record.wi = wi;
+            bsdf.Eval(bsdf_sample_record);
+            f = bsdf_sample_record.f;
+            // printf("%f\n",f);
+        }
+
 
         Reservoir::Sample x_i = neighbor_reservoir.y;
         x_i.radiance = make_float3(0.f);

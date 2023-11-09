@@ -15,18 +15,13 @@ extern "C" {
 __constant__ ddgi::render::OptixLaunchParams optix_launch_params;
 }
 
-struct HitInfo {
-    optix::LocalGeometry geo;
-    optix::material::Material::LocalBsdf bsdf;
-    int emitter_index;
-};
-
 struct PathPayloadRecord {
     cuda::Random random;
     unsigned int pixel_index;
     bool hit_flag;
     bool is_emitter;
 
+    optix::material::Material::LocalBsdf bsdf;
     float3 color;
     float3 pos;
     float3 normal;
@@ -85,10 +80,14 @@ extern "C" __global__ void __raygen__main() {
     optix_launch_params.position_buffer[pixel_index] = make_float4(record.pos, record.hit_flag ? 1.f : 0.f);
     optix_launch_params.albedo_buffer[pixel_index] = make_float4(record.color, record.is_emitter ? 1.f : 0.f);
     optix_launch_params.normal_buffer[pixel_index] = make_float4(record.normal, record.depth);
+    optix_launch_params.bsdf_buffer[pixel_index] = record.bsdf;
 }
 
 extern "C" __global__ void __miss__default() {
-
+    auto record = optix::GetPRD<PathPayloadRecord>();
+    optix::material::Material::LocalBsdf bsdf;
+    bsdf.type = EMatType::Unknown;
+    record->bsdf = bsdf;
 }
 
 extern "C" __global__ void __closesthit__default() {
@@ -100,6 +99,7 @@ extern "C" __global__ void __closesthit__default() {
     optix::LocalGeometry geo;
     sbt_data->geo.GetHitLocalGeometry(geo, ray_dir, sbt_data->mat.twosided);
     record->color = sbt_data->mat.GetColor(geo.texcoord);
+    record->bsdf = sbt_data->mat.GetLocalBsdf(geo.texcoord);
     record->normal = geo.normal;
     record->pos = geo.position;
     // +Z points -view
@@ -121,6 +121,9 @@ extern "C" __global__ void __closesthit__default() {
         // 每次循环都随机取一个光源面片
         float r1 = record->random.Next();
         auto &emitter = optix_launch_params.emitters.SelectOneEmiiter(r1);
+        // auto emitter = optix_launch_params.emitters.areas[1];
+        // printf("emitter_num: %d\n", optix_launch_params.emitters.areas.GetNum());
+        // emitter.select_probability = 1.0f;
         optix::EmitterSampleRecord emitter_sample_record;
 
         // 计算其直接光照
@@ -139,13 +142,18 @@ extern "C" __global__ void __closesthit__default() {
         // 计算样本的权重
         float w_i = 0.f;
         float3 wi = optix::ToLocal(emitter_sample_record.wi, geo.normal); // shading point to light source
-        float3 wo = optix::ToLocal(-ray_dir, geo.normal);
-        // auto [f, pdf] = sbt_data->mat.Eval(wi, wo, geo.texcoord);
-        float3 f = make_float3(0.f);
-        if (wi.z > 0.f && wo.z > 0.f) {
-            f = record->color * M_1_PIf;
-        }
-        // x_i.emission = make_float3(1.0,0.0,0.0);
+        float3 wo = optix::ToLocal(-ray_dir, geo.normal); // shading point to eye
+        optix::BsdfSamplingRecord bsdf_sample_record;
+        bsdf_sample_record.wo = wo;
+        bsdf_sample_record.wi = wi;
+        record->bsdf.Eval(bsdf_sample_record);
+
+        // float3 f = make_float3(0.f);
+        // if (wi.z > 0.f && wo.z > 0.f) {
+        //     f = record->color * M_1_PIf;
+        // }
+        float3 f = bsdf_sample_record.f;
+
         if (!optix::IsZero(f)) {
             float NoL = dot(geo.normal, emitter_sample_record.wi);
             emitter_sample_record.pdf *= emitter.select_probability;

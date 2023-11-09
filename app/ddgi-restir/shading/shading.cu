@@ -228,7 +228,8 @@ extern "C" __global__ void __raygen__main() {
     }
 
 
-    optix_launch_params.frame_buffer[pixel_index] = make_float4(direct_color + indirect_color, 1.f);
+    optix_launch_params.direct_buffer[pixel_index] = make_float4(direct_color, 1.f);
+    optix_launch_params.indirect_buffer[pixel_index] = make_float4(indirect_color, 1.f);
 
 }
 

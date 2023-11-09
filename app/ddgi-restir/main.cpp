@@ -5,6 +5,8 @@
 #include "temporal/pass.h"
 #include "shadow/pass.h"
 #include "path_tracer/pt_pass.h"
+#include "denoiser/denoise_pass.h"
+#include "merge/pass.h"
 #include "static.h"
 #include "system/system.h"
 #include "indirect/global.h"
@@ -22,8 +24,9 @@ int main() {
         auto shading_pass = std::make_unique<Pupil::ddgi::shading::ShadingPass>();
         auto shadow_pass = std::make_unique<Pupil::ddgi::shadow::ShadowRayPass>();
         auto pt_pass = std::make_unique<Pupil::ddgi::pt::PTPass>("Path Tracing");
+        auto denoise_pass = std::make_unique<Pupil::DenoisePass>();
+        auto merge_pass = std::make_unique<Pupil::ddgi::merge::MergePass>();
 
-        // system->AddPass(pt_pass.get());
         system->AddPass(probe_pass.get());
         system->AddPass(init_pass.get());
         system->AddPass(temporal_pass.get());
@@ -31,6 +34,8 @@ int main() {
         system->AddPass(shadow_pass.get());
         system->AddPass(shading_pass.get());
         system->AddPass(pt_pass.get());
+        system->AddPass(denoise_pass.get());
+        system->AddPass(merge_pass.get());
 
         // std::filesystem::path scene_file_path{ Pupil::DATA_DIR };
         // scene_file_path /= "static/cornellbox.xml";

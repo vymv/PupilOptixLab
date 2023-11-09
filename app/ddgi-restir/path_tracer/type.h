@@ -23,7 +23,7 @@ struct OptixLaunchParams {
     optix::EmitterGroup emitters;
 
     cuda::RWArrayView<float4> accum_buffer;
-    cuda::RWArrayView<float4> frame_buffer;
+    cuda::RWArrayView<float4> output_buffer;
 
     cuda::RWArrayView<float3> normal_buffer;
     cuda::RWArrayView<float3> albedo_buffer;

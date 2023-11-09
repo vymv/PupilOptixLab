@@ -110,7 +110,7 @@ void PTPass::SetScene(world::World *world) noexcept {
     m_optix_launch_params.config.frame.width = world->scene->sensor.film.w;
     m_optix_launch_params.config.frame.height = world->scene->sensor.film.h;
     m_optix_launch_params.config.max_depth = world->scene->integrator.max_depth;
-    m_optix_launch_params.config.accumulated_flag = false;
+    m_optix_launch_params.config.accumulated_flag = true;
 
     m_max_depth = m_optix_launch_params.config.max_depth;
     m_accumulated_flag = m_optix_launch_params.config.accumulated_flag;
