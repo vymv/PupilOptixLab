@@ -21,7 +21,6 @@ extern uint32_t g_window_h;
 
 namespace {
 int m_max_depth;
-bool m_accumulated_flag;
 
 Pupil::world::World *m_world = nullptr;
 }// namespace
@@ -44,7 +43,7 @@ void PTPass::OnRun() noexcept {
         if (m_dirty) {
             m_optix_launch_params.camera.SetData(m_world_camera->GetCudaMemory());
             m_optix_launch_params.config.max_depth = m_max_depth;
-            m_optix_launch_params.config.accumulated_flag = m_accumulated_flag;
+            m_optix_launch_params.config.accumulated_flag = accumulated;
             m_optix_launch_params.sample_cnt = 0;
             m_optix_launch_params.random_seed = 0;
             m_optix_launch_params.handle = m_world->GetIASHandle(2, true);
@@ -119,7 +118,7 @@ void PTPass::SetScene(world::World *world) noexcept {
     m_optix_launch_params.config.accumulated_flag = false;
 
     m_max_depth = m_optix_launch_params.config.max_depth;
-    m_accumulated_flag = m_optix_launch_params.config.accumulated_flag;
+    accumulated = m_optix_launch_params.config.accumulated_flag;
 
     m_optix_launch_params.random_seed = 0;
     m_optix_launch_params.sample_cnt = 0;
@@ -263,7 +262,7 @@ void PTPass::Inspector() noexcept {
         m_dirty = true;
     }
 
-    if (ImGui::Checkbox("accumulate radiance", &m_accumulated_flag)) {
+    if (ImGui::Checkbox("accumulate radiance", &accumulated)) {
         m_dirty = true;
     }
 }

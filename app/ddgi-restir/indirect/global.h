@@ -21,5 +21,7 @@ extern int m_show_type;
 extern float m_energyconservation;
 extern bool show_type_changed;
 extern bool is_pathtracer;
+extern bool m_enable_visualize;
+extern bool accumulated;
 
 }// namespace Pupil::ddgi

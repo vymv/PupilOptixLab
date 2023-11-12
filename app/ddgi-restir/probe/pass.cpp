@@ -155,10 +155,10 @@ void ProbePass::OnRun() noexcept {
             m_update_params.raydirection.SetData(raydirectionbuffer->cuda_ptr,
                                                  m_irradiancerays_perprobe * std::pow(m_probecountperside, 3));
 
-            // origin
-            CUDA_FREE(m_probepos_cuda_memory);
-            m_probepos_cuda_memory = cuda::CudaMemcpyToDevice(m_probepos.data(), m_probepos.size() * sizeof(float3));
-            m_update_params.rayorigin.SetData(m_probepos_cuda_memory, m_probepos.size());
+            // // origin
+            // CUDA_FREE(m_probepos_cuda_memory);
+            // m_probepos_cuda_memory = cuda::CudaMemcpyToDevice(m_probepos.data(), m_probepos.size() * sizeof(float3));
+            // m_update_params.rayorigin.SetData(m_probepos_cuda_memory, m_probepos.size());
 
             // 输出
             // auto &frame_buffer = util::Singleton<GuiPass>::instance()->GetCurrentRenderOutputBuffer().shared_buffer;
@@ -333,8 +333,15 @@ void ProbePass::SetScene(world::World *world) noexcept {
     };
 
     m_probedepth = buf_mngr->AllocBuffer(probedepth_buf_desc);
-    // m_update_params.probeirradiance.SetData(m_probeirradiance->cuda_res.ptr,
-    //                                         m_probeirradiancesize.h * m_probeirradiancesize.w);
+
+    BufferDesc probeposition_buf_desc = {
+        .name = "ddgi_probeposition",
+        .flag = EBufferFlag::AllowDisplay,
+        .width = static_cast<uint32_t>(m_probecountperside * m_probecountperside * m_probecountperside),
+        .height = static_cast<uint32_t>(1),
+        .stride_in_byte = sizeof(float) * 3
+    };
+    m_probeposition = buf_mngr->AllocBuffer(probeposition_buf_desc);
 
     // 确定probe位置
     util::AABB aabb = world->GetAABB();
@@ -374,7 +381,18 @@ void ProbePass::SetScene(world::World *world) noexcept {
 
     CUDA_FREE(m_probepos_cuda_memory);
     m_probepos_cuda_memory = cuda::CudaMemcpyToDevice(m_probepos.data(), m_probepos.size() * sizeof(float3));
-    m_optix_launch_params.probepos.SetData(m_probepos_cuda_memory, m_probepos.size());
+
+    CUDA_CHECK(cudaMemcpyAsync(
+        reinterpret_cast<void *>(m_probeposition->cuda_ptr),
+        reinterpret_cast<void *>(m_probepos_cuda_memory),
+        m_probecountperside * m_probecountperside * m_probecountperside * sizeof(float3),
+        cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream()));
+
+    CUDA_CHECK(cudaStreamSynchronize(m_stream->GetStream()));
+
+    // m_optix_launch_params.probepos.SetData(m_probepos_cuda_memory, m_probepos.size());
+    m_optix_launch_params.probepos.SetData(m_probeposition->cuda_ptr, m_probepos.size());
+    m_update_params.rayorigin.SetData(m_probeposition->cuda_ptr, m_probepos.size());
 
     m_optix_launch_params.rayradiance.SetData(0, 0);
     m_optix_launch_params.rayhitposition.SetData(0, 0);

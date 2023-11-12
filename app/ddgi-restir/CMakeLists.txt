@@ -23,7 +23,7 @@ cuda_compile_and_embed(ddgi_temporal_pass_embedded_ptx_code temporal/temporal_re
 cuda_compile_and_embed(ddgi_shadow_pass_embedded_ptx_code shadow/shadow.cu)
 cuda_compile_and_embed(pathtracer_pass_embedded_ptx_code path_tracer/pathtracer.cu)
 cuda_compile_and_embed(ddgi_merge_pass_embedded_ptx_code merge/merge.cu)
-
+cuda_compile_and_embed(ddgi_visualize_pass_embedded_ptx_code visualize/visualize.cu)
 
 file(GLOB_RECURSE ALL_INCLUDE CONFIGURE_DEPENDS "*.h")
 file(GLOB_RECURSE ALL_SOURCES CONFIGURE_DEPENDS "*.cpp")
@@ -38,6 +38,7 @@ add_executable(${target_name}
     ${ddgi_shadow_pass_embedded_ptx_code}
     ${ddgi_merge_pass_embedded_ptx_code}
     ${pathtracer_pass_embedded_ptx_code}
+    ${ddgi_visualize_pass_embedded_ptx_code}
     ${ALL_INCLUDE}
     ${ALL_SOURCES}
     probe/probeIntegrate.cu

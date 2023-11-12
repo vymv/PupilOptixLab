@@ -116,7 +116,7 @@ extern "C" __global__ void __closesthit__default() {
         return;
     }
     
-    for (unsigned int i = 0u; i < 64; i++) {
+    for (unsigned int i = 0u; i < optix_launch_params.M; i++) {
 
         // 每次循环都随机取一个光源面片
         float r1 = record->random.Next();

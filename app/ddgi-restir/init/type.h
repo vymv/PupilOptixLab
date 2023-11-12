@@ -29,6 +29,8 @@ struct OptixLaunchParams {
         mat4x4 view;
         mat4x4 proj_view;
     } camera;
+
+    int M;
     OptixTraversableHandle handle;
     optix::EmitterGroup emitters;
 

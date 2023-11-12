@@ -66,6 +66,7 @@ void DenoisePass::OnRun() noexcept {
     if (!Pupil::ddgi::is_pathtracer) {
         m_data.albedo = buf_mngr->GetBuffer("gbuffer albedo")->cuda_ptr;
         m_data.normal = buf_mngr->GetBuffer("gbuffer normal")->cuda_ptr;
+
         m_data.input = buf_mngr->GetBuffer("direct buffer")->cuda_ptr;
 
     } else {

@@ -59,6 +59,7 @@ private:
     Buffer *m_rayhitnormal = nullptr;
     Buffer *m_probeirradiance = nullptr;
     Buffer *m_probedepth = nullptr;
+    Buffer *m_probeposition = nullptr;
 
     CUdeviceptr m_randomoriention_cuda_memory = 0;
     CUdeviceptr m_probepos_cuda_memory = 0;

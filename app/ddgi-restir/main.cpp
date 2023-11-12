@@ -7,6 +7,7 @@
 #include "path_tracer/pt_pass.h"
 #include "denoiser/denoise_pass.h"
 #include "merge/pass.h"
+#include "visualize/pass.h"
 #include "static.h"
 #include "system/system.h"
 #include "indirect/global.h"
@@ -26,6 +27,7 @@ int main() {
         auto pt_pass = std::make_unique<Pupil::ddgi::pt::PTPass>("Path Tracing");
         auto denoise_pass = std::make_unique<Pupil::DenoisePass>();
         auto merge_pass = std::make_unique<Pupil::ddgi::merge::MergePass>();
+        auto visualize_pass = std::make_unique<Pupil::ddgi::visualize::VisualizePass>();
 
         system->AddPass(probe_pass.get());
         system->AddPass(init_pass.get());
@@ -36,14 +38,15 @@ int main() {
         system->AddPass(pt_pass.get());
         system->AddPass(denoise_pass.get());
         system->AddPass(merge_pass.get());
+        system->AddPass(visualize_pass.get());
 
         // std::filesystem::path scene_file_path{ Pupil::DATA_DIR };
         // scene_file_path /= "static/cornellbox.xml";
         // std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/living-room-white/scene_v3.xml";
         // std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/living-room-2/pupil_test.xml";
         // std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/veach-ajar/scene_v3.xml";
-        std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/kitchen/scene_v3.xml";
-        // std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/bathroom/scene_v3.xml";
+        // std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/kitchen/scene_v3.xml";
+        std::filesystem::path scene_file_path = "D:/Research/Models/MitsubaModels/bathroom/scene_v3.xml";
         system->SetScene(scene_file_path);
 
         system->Run();

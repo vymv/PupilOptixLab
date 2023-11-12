@@ -180,7 +180,7 @@ __device__ float3 ComputeIndirect(const float3 wsN, const float3 wsPosition, con
 
     float3 netIrradiance = sumIrradiance / sumWeight;
     netIrradiance *= energyConservation;
-    float3 indirect = 2.0 * M_PIf * netIrradiance;
+    float3 indirect = M_PIf * netIrradiance;
 
     return indirect;
 }

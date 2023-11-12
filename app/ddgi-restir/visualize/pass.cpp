@@ -1,17 +1,16 @@
 #include "pass.h"
+#include "../indirect/global.h"
 #include "imgui.h"
+
 #include "cuda/context.h"
 #include "optix/context.h"
 #include "optix/module.h"
 
-#include "util/event.h"
-#include "system/gui/gui.h"
 #include "system/system.h"
-#include "../indirect/global.h"
+#include "system/gui/gui.h"
+#include "util/event.h"
 
-// 构建期通过CMake将.cu代码编译并嵌入到.c文件中，
-// 代码指令由char类型保存，只需要声明extern即可获取
-extern "C" char ddgi_merge_pass_embedded_ptx_code[];
+extern "C" char ddgi_visualize_pass_embedded_ptx_code[];
 
 namespace Pupil {
 extern uint32_t g_window_w;
@@ -19,46 +18,61 @@ extern uint32_t g_window_h;
 }// namespace Pupil
 
 namespace {
-int m_max_depth;
-double m_time_cnt = 1.;
-int m_show_type = 0;
-Pupil::world::World *m_world;
-bool m_direct_on = true;
-bool m_indirect_on = true;
+double m_time_cnt = 1.f;
+float m_probe_visualize_size = 10.0f;
+int highlight_index = -1;
+
 }// namespace
 
-namespace Pupil::ddgi::merge {
-MergePass::MergePass(std::string_view name) noexcept : Pass(name) {
+namespace Pupil::ddgi::visualize {
+VisualizePass::VisualizePass(std::string_view name) noexcept : Pass(name) {
     auto optix_ctx = util::Singleton<optix::Context>::instance();
     auto cuda_ctx = util::Singleton<cuda::Context>::instance();
     m_stream = std::make_unique<cuda::Stream>();
     m_optix_pass =
         std::make_unique<optix::Pass<SBTTypes, OptixLaunchParams>>(optix_ctx->context, m_stream->GetStream());
+
     InitOptixPipeline();
     BindingEventCallback();
 }
 
-void MergePass::OnRun() noexcept {
+void VisualizePass::OnRun() noexcept {
 
-    m_timer.Start();
-    {
-        m_optix_launch_params.is_pathtracer = is_pathtracer;
-        // auto buf_mngr = util::Singleton<BufferManager>::instance();
-        // auto *frame_buffer = buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME);
+    if (!is_pathtracer && m_enable_visualize) {
 
-        // m_optix_launch_params.output_buffer.SetData(frame_buffer->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
+        if (m_dirty) {
+            auto proj = m_world_camera->GetProjectionMatrix();
+            auto view = m_world_camera->GetViewMatrix();
+            m_optix_launch_params.proj_view = Pupil::ToCudaType(proj * view);
+            m_optix_launch_params.probe_visualize_size = m_probe_visualize_size;
+            m_optix_launch_params.highlight_index = highlight_index;
+        }
 
-        m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width, m_optix_launch_params.config.frame.height);
+        m_optix_pass->Run(m_optix_launch_params, m_optix_launch_params.config.frame.width,
+                          m_optix_launch_params.config.frame.height);
         m_optix_pass->Synchronize();
+
+        m_time_cnt = m_timer.ElapsedMilliseconds();
+
+    } else {
+        auto buf_mngr = util::Singleton<BufferManager>::instance();
+        auto *frame_buffer = buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME);
+        auto *result_buffer = buf_mngr->GetBuffer("result buffer");
+        CUDA_CHECK(cudaMemcpyAsync(
+            reinterpret_cast<void *>(frame_buffer->cuda_ptr),
+            reinterpret_cast<void *>(result_buffer->cuda_ptr),
+            m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height * sizeof(float4),
+            cudaMemcpyKind::cudaMemcpyDeviceToDevice, m_stream->GetStream()));
+
+        CUDA_CHECK(cudaStreamSynchronize(m_stream->GetStream()));
     }
-    m_timer.Stop();
 }
 
-void MergePass::InitOptixPipeline() noexcept {
+void VisualizePass::InitOptixPipeline() noexcept {
     auto module_mngr = util::Singleton<optix::ModuleManager>::instance();
 
     auto sphere_module = module_mngr->GetModule(optix::EModuleBuiltinType::SpherePrimitive);
-    auto pt_module = module_mngr->GetModule(ddgi_merge_pass_embedded_ptx_code);
+    auto pt_module = module_mngr->GetModule(ddgi_visualize_pass_embedded_ptx_code);
 
     optix::PipelineDesc pipeline_desc;
     {
@@ -90,32 +104,25 @@ void MergePass::InitOptixPipeline() noexcept {
     m_optix_pass->InitPipeline(pipeline_desc);
 }
 
-void MergePass::SetScene(world::World *world) noexcept {
-    m_world = world;
-    // 对于场景初始化参数
+void VisualizePass::SetScene(world::World *world) noexcept {
+
     m_world_camera = world->camera.get();
     m_optix_launch_params.config.frame.width = world->scene->sensor.film.w;
     m_optix_launch_params.config.frame.height = world->scene->sensor.film.h;
 
     auto buf_mngr = util::Singleton<BufferManager>::instance();
-    BufferDesc result_buf_desc = {
-        .name = "result buffer",
-        .flag = EBufferFlag::AllowDisplay,
-        .width = m_optix_launch_params.config.frame.width,
-        .height = m_optix_launch_params.config.frame.height,
-        .stride_in_byte = sizeof(float) * 4
-    };
-    auto result_buf = buf_mngr->AllocBuffer(result_buf_desc);
-    m_optix_launch_params.output_buffer.SetData(result_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
-    // auto *frame_buffer = buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME);
-    // m_optix_launch_params.output_buffer.SetData(frame_buffer->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
+    auto *frame_buffer = buf_mngr->GetBuffer(buf_mngr->DEFAULT_FINAL_RESULT_BUFFER_NAME);
+    m_optix_launch_params.visualize_buffer.SetData(frame_buffer->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
 
-    auto direct_buf = buf_mngr->GetBuffer("denoised buffer");
-    m_optix_launch_params.direct_buffer.SetData(direct_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
-    auto indirect_buf = buf_mngr->GetBuffer("indirect buffer");
-    m_optix_launch_params.indirect_buffer.SetData(indirect_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
+    auto pos_buf = buf_mngr->GetBuffer("ddgi_probeposition");
+    m_optix_launch_params.probe_position.SetData(pos_buf->cuda_ptr, m_probecountperside * m_probecountperside * m_probecountperside);
+    m_optix_launch_params.probe_count = m_probecountperside * m_probecountperside * m_probecountperside;
 
-    m_dirty = true;
+    auto result_buf = buf_mngr->GetBuffer("result buffer");
+    m_optix_launch_params.input_buffer.SetData(result_buf->cuda_ptr, m_optix_launch_params.config.frame.width * m_optix_launch_params.config.frame.height);
+
+    m_optix_launch_params.probe_visualize_size = m_probe_visualize_size;
+    m_optix_launch_params.highlight_index = highlight_index;
 
     // 将场景数据绑定到sbt中
     optix::SBTDesc<SBTTypes> desc{};
@@ -155,22 +162,23 @@ void MergePass::SetScene(world::World *world) noexcept {
         }
     }
     m_optix_pass->InitSBT(desc);
+
+    m_dirty = true;
 }
 
-void MergePass::BindingEventCallback() noexcept {
-    EventBinder<EWorldEvent::CameraChange>([this](void *) {
+void VisualizePass::BindingEventCallback() noexcept {
+    EventBinder<EWorldEvent::CameraChange>([this](void *) { m_dirty = true; });
+
+    EventBinder<ESystemEvent::SceneLoad>([this](void *p) { SetScene((world::World *)p); });
+}
+
+void VisualizePass::Inspector() noexcept {
+
+    ImGui::Checkbox("enable", &m_enable_visualize);
+    if (m_optix_launch_params.probe_visualize_size != m_probe_visualize_size) {
         m_dirty = true;
-    });
-
-    EventBinder<EWorldEvent::RenderInstanceUpdate>([this](void *) {
-        m_dirty = true;
-    });
-
-    EventBinder<ESystemEvent::SceneLoad>([this](void *p) {
-        SetScene((world::World *)p);
-    });
+    }
+    ImGui::InputFloat("size", &m_probe_visualize_size, 0.05f);
+    ImGui::InputInt("high light probe", &highlight_index);
 }
-
-void MergePass::Inspector() noexcept {
-}
-}// namespace Pupil::ddgi::merge
+}// namespace Pupil::ddgi::visualize

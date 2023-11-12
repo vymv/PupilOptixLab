@@ -3,7 +3,7 @@
 namespace Pupil::ddgi {
 int m_probesidelength = 64;
 int m_irradiancerays_perprobe = 64;
-int m_probecountperside = 4;
+int m_probecountperside = 5;
 float3 m_probestep;
 float3 m_probestartpos;
 float m_depthSharpness = 50.0f;
@@ -19,5 +19,7 @@ usize m_raygbuffersize{ static_cast<uint32_t>(m_irradiancerays_perprobe),
 int m_show_type = 0;
 bool show_type_changed = false;
 bool is_pathtracer = false;
-float m_energyconservation = 0.60f;
+float m_energyconservation = 0.95f;
+bool m_enable_visualize = true;
+bool accumulated = false;
 }// namespace Pupil::ddgi

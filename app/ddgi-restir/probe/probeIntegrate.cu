@@ -130,20 +130,7 @@ __global__ void UpdateProbe(float4 *probeirradiance, float4 *probedepth, const f
     }
 
     if (irradiance) {
-        int local_x = (pixel_x - 1) % 66 - 1;
-        int local_y = (pixel_y - 1) % 66 - 1;
-        
-        if(local_x<8 && local_y<8){
-            // probeirradiance[pixel_index] = make_float4(raydirection[local_y *8 + local_x + probeId *64].x,
-            //                                             raydirection[local_y *8 + local_x + probeId *64].y,
-            //                                             raydirection[local_y *8 + local_x + probeId *64].z,1.0f);
-            // float3 rayDirection = raydirection[local_y * 8 + local_x + 7 *64];
-            // float weight = pow(max(0.0, dot(texelDirection, rayDirection)), depthSharpness);
-            // probeirradiance[pixel_index] = make_float4(weight);
-            // probeirradiance[pixel_index] = make_float4(rayorigin[probeId],1.0f);
-            
-        }
-        // probeirradiance[pixel_index] = make_float4(texelDirection,1.0f);
+
         probeirradiance[pixel_index] = result;
 
     } else {

@@ -24,6 +24,7 @@ int m_num_emission = 16;
 double m_time_cnt = 1.;
 bool m_direct_on = true;
 bool m_indirect_on = true;
+int m_restir_sample_count = 32;
 Pupil::world::World *m_world;
 
 }// namespace
@@ -58,6 +59,7 @@ void RenderPass::OnRun() noexcept {
                 m_optix_launch_params.directOn = m_direct_on;
                 m_optix_launch_params.random_seed = 0;
                 m_optix_launch_params.handle = m_world->GetIASHandle(2, true);
+                m_optix_launch_params.M = m_restir_sample_count;
                 m_dirty = false;
             }
 
@@ -215,6 +217,7 @@ void RenderPass::SetScene(world::World *world) noexcept {
     // m_optix_launch_params.frame_buffer.SetData(0, 0);
     m_optix_launch_params.handle = world->GetIASHandle(2, true);
     m_optix_launch_params.emitters = world->emitters->GetEmitterGroup();
+    m_optix_launch_params.M = m_restir_sample_count;
 
     // m_optix_launch_params.probeStartPosition = m_probestartpos;
     // m_optix_launch_params.probeStep = m_probestep;
@@ -296,5 +299,9 @@ void RenderPass::BindingEventCallback() noexcept {
 }
 
 void RenderPass::Inspector() noexcept {
+    ImGui::InputInt("M", &m_restir_sample_count);
+    if (m_restir_sample_count != m_optix_launch_params.M) {
+        m_dirty = true;
+    }
 }
 }// namespace Pupil::ddgi::render
